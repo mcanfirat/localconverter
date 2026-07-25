@@ -1,0 +1,11 @@
+node_modules/
+dist/
+target/
+*.tsbuildinfo
+.DS_Store
+.vite/
+.turbo/
+
+# Bundled third-party engines are downloaded + checksum-verified by scripts,
+# never committed.
+vendor/bin/

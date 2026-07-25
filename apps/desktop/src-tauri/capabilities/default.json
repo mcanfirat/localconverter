@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege surface for the LocalConvert window. The frontend may subscribe to job events and open a native directory picker. It is granted no filesystem, shell, process, HTTP or opener permissions: every file operation goes through a typed Rust command that validates its arguments.",
+  "windows": ["main"],
+  "permissions": ["core:event:default", "dialog:allow-open"]
+}

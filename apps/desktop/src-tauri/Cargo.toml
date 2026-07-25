@@ -1,0 +1,41 @@
+[package]
+name = "localconvert-desktop"
+description = "LocalConvert desktop shell."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "localconvert_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+localconvert-core.workspace = true
+
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+tracing-subscriber.workspace = true
+ts-rs.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+# Used only to build fixtures and to read outputs back in the pipeline tests.
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+imagesize = "0.15"
+tauri = { version = "2", features = ["test"] }
+tempfile = "3"
+
+[lints]
+workspace = true

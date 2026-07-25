@@ -1,0 +1,5 @@
+# ts-rs writes the TypeScript mirror of every #[ts(export)] contract here when
+# `cargo test` runs. CI re-runs it and fails on a dirty tree, so the frontend
+# types can never drift from the Rust ones.
+[env]
+TS_RS_EXPORT_DIR = { value = "apps/desktop/src/bindings", relative = true }

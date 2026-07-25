@@ -1,0 +1,60 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/localconvert-core",
+    "crates/localconvert-cli",
+    "apps/desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+repository = "https://github.com/localconvert/localconvert"
+
+[workspace.dependencies]
+localconvert-core = { path = "crates/localconvert-core" }
+
+chrono = { version = "0.4", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+thiserror = "2"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "macros",
+    "fs",
+    "io-util",
+    "sync",
+    "time",
+    "process",
+] }
+tokio-util = "0.7"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+ts-rs = { version = "11", features = [
+    "chrono-impl",
+    "uuid-impl",
+    "serde-json-impl",
+    "no-serde-warnings",
+] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+# Correctness over cleverness: these are the ways a conversion tool silently
+# corrupts data, so they are hard errors rather than warnings.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+indexing_slicing = "deny"
+integer_division = "deny"
+lossy_float_literal = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

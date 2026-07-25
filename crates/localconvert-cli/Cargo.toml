@@ -1,0 +1,28 @@
+[package]
+name = "localconvert-cli"
+description = "Command-line interface for LocalConvert, sharing the same core engine as the desktop app."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "localconvert"
+path = "src/main.rs"
+
+[dependencies]
+localconvert-core.workspace = true
+
+clap = { version = "4", features = ["derive"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+tempfile = "3"
+
+[lints]
+workspace = true

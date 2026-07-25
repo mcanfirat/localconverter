@@ -1,0 +1,27 @@
+{
+  "name": "localconvert",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "scripts": {
+    "dev": "pnpm --filter @localconvert/desktop dev",
+    "tauri": "pnpm --filter @localconvert/desktop tauri",
+    "build": "pnpm --filter @localconvert/desktop build",
+    "typecheck": "pnpm --filter @localconvert/desktop typecheck",
+    "lint": "pnpm --filter @localconvert/desktop lint",
+    "test": "pnpm --filter @localconvert/desktop test",
+    "rust:fmt": "cargo fmt --all -- --check",
+    "rust:lint": "cargo clippy --workspace --all-targets -- -D warnings",
+    "rust:test": "cargo test --workspace",
+    "check": "pnpm typecheck && pnpm lint && pnpm test && pnpm rust:fmt && pnpm rust:lint && pnpm rust:test"
+  }
+}
