@@ -1,5 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useMemo, useState } from "react";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Background } from "../bindings/Background";
 import type { ConversionError } from "../bindings/ConversionError";
@@ -13,7 +14,17 @@ import { preflightImages, startJob, toConversionError } from "../ipc";
 import { t } from "../messages";
 import { useJobStore } from "../store";
 
-const INPUT_EXTENSIONS = ["jpg", "jpeg", "jpe", "png", "webp", "tif", "tiff", "bmp", "gif"];
+const INPUT_EXTENSIONS = [
+  "jpg",
+  "jpeg",
+  "jpe",
+  "png",
+  "webp",
+  "tif",
+  "tiff",
+  "bmp",
+  "gif",
+];
 
 const FORMATS: { value: ImageOutputFormat; label: string; note: string }[] = [
   { value: "jpeg", label: "JPG", note: "Small, lossy, no transparency" },
@@ -38,12 +49,18 @@ export function ConvertRoute() {
   const [resizeMode, setResizeMode] = useState<ResizeMode>("none");
   const [boxWidth, setBoxWidth] = useState(1920);
   const [boxHeight, setBoxHeight] = useState(1080);
-  const [background, setBackground] = useState<Background>({ r: 255, g: 255, b: 255 });
+  const [background, setBackground] = useState<Background>({
+    r: 255,
+    g: 255,
+    b: 255,
+  });
   const [policy, setPolicy] = useState<OverwritePolicy>("rename");
 
-  const [lastPreflight, setLastPreflight] = useState<ImageBatchPreflight | null>(null);
+  const [lastPreflight, setLastPreflight] =
+    useState<ImageBatchPreflight | null>(null);
   const [error, setError] = useState<ConversionError | null>(null);
   const [lastJobId, setLastJobId] = useState<string | null>(null);
+  const [dragging, setDragging] = useState(false);
 
   const jobs = useJobStore((state) => state.jobs);
   const lastJob = jobs.find((job) => job.id === lastJobId);
@@ -88,13 +105,57 @@ export function ConvertRoute() {
   // nothing to report, whatever the last response happened to be.
   const preflight = paths.length === 0 ? null : lastPreflight;
 
+  const addPaths = useCallback((incoming: string[]) => {
+    // Filter here rather than letting the backend decline them: dropping a
+    // folder or a stray .txt alongside photos is an accident, not a request.
+    const images = incoming.filter((path) =>
+      INPUT_EXTENSIONS.includes(path.split(".").pop()?.toLowerCase() ?? ""),
+    );
+    if (images.length === 0) return;
+    setPaths((current) => [...new Set([...current, ...images])]);
+  }, []);
+
+  // Dragging files onto the window is the gesture people reach for first, and
+  // it arrives as a webview event rather than an HTML drop — the renderer
+  // never sees a real path, so the DOM drag events cannot be used here.
+  //
+  // Guarded because `getCurrentWebview` throws outright when the Tauri runtime
+  // is absent, as it is when the frontend is opened in an ordinary browser
+  // during development. Losing drag-and-drop there is a nuisance; taking the
+  // whole route down with it was a blank screen.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    try {
+      void getCurrentWebview()
+        .onDragDropEvent((event) => {
+          if (event.payload.type === "over") setDragging(true);
+          else if (event.payload.type === "drop") {
+            setDragging(false);
+            addPaths(event.payload.paths);
+          } else setDragging(false);
+        })
+        .then((unlisten) => {
+          if (cancelled) unlisten();
+          else stop = unlisten;
+        })
+        .catch(() => undefined);
+    } catch {
+      // No Tauri runtime — the browse button still works.
+    }
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
+  }, [addPaths]);
+
   async function chooseFiles() {
     const picked = await open({
       multiple: true,
       filters: [{ name: "Images", extensions: INPUT_EXTENSIONS }],
     });
-    if (Array.isArray(picked)) setPaths(picked);
-    else if (typeof picked === "string") setPaths([picked]);
+    if (Array.isArray(picked)) addPaths(picked);
+    else if (typeof picked === "string") addPaths([picked]);
   }
 
   async function chooseDestination() {
@@ -122,236 +183,335 @@ export function ConvertRoute() {
   const convertible = preflight?.convertibleCount ?? 0;
   const canRun = destination !== null && convertible > 0;
 
+  const totalBytes =
+    preflight?.files.reduce((sum, file) => sum + file.sizeBytes, 0) ?? 0;
+
   return (
-    <div className="stack">
-      <section className="card">
-        <h2>{t("operation.convert.label")}</h2>
-        <p className="muted">{t("operation.convert.description")}</p>
-
-        <div className="field__row">
-          <button type="button" className="btn" onClick={() => void chooseFiles()}>
-            Choose images…
-          </button>
-          <button type="button" className="btn" onClick={() => void chooseDestination()}>
-            Choose destination…
-          </button>
-          <span className="muted">
-            {destination ? `Saving to ${fileNameOf(destination)}` : "No destination chosen"}
+    <div className="split">
+      <div className="stack">
+        <button
+          type="button"
+          className={[
+            "dropzone",
+            dragging ? "dropzone--hot" : "",
+            paths.length === 0 ? "dropzone--empty" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          onClick={() => void chooseFiles()}
+        >
+          <span className="dropzone__icon" aria-hidden="true">
+            ⬒
           </span>
-        </div>
-      </section>
+          <span className="dropzone__title">
+            {dragging ? "Release to add" : "Drop images here"}
+          </span>
+          <span className="dropzone__hint">
+            or click to browse — JPG, PNG, WebP, TIFF, BMP, GIF
+          </span>
+        </button>
 
-      {preflight && preflight.files.length > 0 && (
-        <section className="card">
-          <h2>
-            {preflight.files.length} file{preflight.files.length === 1 ? "" : "s"} selected
-          </h2>
-          <ul className="filelist">
-            {preflight.files.map((file, index) => (
-              <li key={`${file.displayName}-${index}`} className="filelist__row">
-                <span className="filelist__name">{file.displayName}</span>
-                {file.errorMessageKey ? (
-                  <span className="badge badge--bad">
-                    <span aria-hidden="true">✕</span> Cannot convert
-                  </span>
-                ) : (
-                  <span className="muted">
-                    {file.detectedFormat.toUpperCase()} · {file.width}×{file.height} ·{" "}
-                    {formatBytes(file.sizeBytes)}
-                    {file.hasAlpha && " · transparent"}
-                    {file.isAnimated && " · animated"}
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-          {preflight.files
-            .filter((file) => file.errorMessageKey)
-            .slice(0, 1)
-            .map((file) => (
-              <p className="notice notice--bad" key="unsupported">
-                {t(file.errorMessageKey ?? "")}
-              </p>
-            ))}
-        </section>
-      )}
-
-      <section className="card">
-        <fieldset className="field">
-          <legend className="field__label">Convert to</legend>
-          <div className="chips">
-            {FORMATS.map((option) => (
-              <label key={option.value} className="chip" title={option.note}>
-                <input
-                  type="radio"
-                  name="format"
-                  checked={format === option.value}
-                  onChange={() => setFormat(option.value)}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-          <p className="muted">{FORMATS.find((f) => f.value === format)?.note}</p>
-        </fieldset>
-
-        {format === "jpeg" && (
-          <div className="field">
-            <label className="field__label" htmlFor="quality">
-              Quality — {quality}
-            </label>
-            <input
-              id="quality"
-              type="range"
-              min={1}
-              max={100}
-              value={quality}
-              onChange={(event) => setQuality(Number(event.target.value))}
-            />
-          </div>
-        )}
-
-        <fieldset className="field">
-          <legend className="field__label">Resize</legend>
-          <div className="chips">
-            {(
-              [
-                ["none", "Keep original"],
-                ["fit", "Fit within"],
-                ["exact", "Exactly"],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="chip">
-                <input
-                  type="radio"
-                  name="resize"
-                  checked={resizeMode === value}
-                  onChange={() => setResizeMode(value)}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
-          </div>
-          {resizeMode !== "none" && (
-            <div className="field__row">
-              <label>
-                <span className="muted">Width </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={boxWidth}
-                  onChange={(event) => setBoxWidth(Number(event.target.value))}
-                />
-              </label>
-              <label>
-                <span className="muted">Height </span>
-                <input
-                  type="number"
-                  min={1}
-                  value={boxHeight}
-                  onChange={(event) => setBoxHeight(Number(event.target.value))}
-                />
-              </label>
-              {resizeMode === "fit" && (
-                <span className="muted">Aspect ratio kept; images are never enlarged.</span>
-              )}
+        {preflight && preflight.files.length > 0 && (
+          <>
+            <div className="row row--between">
+              <strong>
+                {preflight.files.length} file
+                {preflight.files.length === 1 ? "" : "s"}
+              </strong>
+              <span className="muted">{formatBytes(totalBytes)} total</span>
             </div>
-          )}
-        </fieldset>
+            <ul className="filelist">
+              {preflight.files.map((file, index) => (
+                <li
+                  key={`${file.displayName}-${index}`}
+                  className={
+                    file.errorMessageKey
+                      ? "filelist__row filelist__row--bad"
+                      : file.extensionMismatch
+                        ? "filelist__row filelist__row--warn"
+                        : "filelist__row"
+                  }
+                >
+                  <span className="filelist__thumb" aria-hidden="true">
+                    {file.errorMessageKey
+                      ? "✕"
+                      : file.extensionMismatch
+                        ? "⚠"
+                        : "▣"}
+                  </span>
+                  <span className="filelist__text">
+                    <span className="filelist__name">{file.displayName}</span>
+                    <span className="filelist__meta">
+                      {file.errorMessageKey ? (
+                        t(file.errorMessageKey)
+                      ) : file.extensionMismatch ? (
+                        <>
+                          Actually {file.detectedFormat.toUpperCase()} —
+                          converted as that
+                        </>
+                      ) : (
+                        <>
+                          {file.detectedFormat.toUpperCase()} · {file.width}×
+                          {file.height} · {formatBytes(file.sizeBytes)}
+                          {file.hasAlpha && " · transparent"}
+                          {file.isAnimated && " · animated"}
+                        </>
+                      )}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="filelist__drop"
+                    aria-label={`Remove ${file.displayName}`}
+                    onClick={() =>
+                      setPaths((current) =>
+                        current.filter((_, i) => i !== index),
+                      )
+                    }
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
 
-        {preflight?.backgroundRequired && (
+      <div className="stack">
+        <section className="card">
           <fieldset className="field">
-            <legend className="field__label">Background for transparent areas</legend>
+            <legend className="field__label">Convert to</legend>
             <div className="chips">
-              {BACKGROUNDS.map((option) => (
-                <label key={option.label} className="chip">
+              {FORMATS.map((option) => (
+                <label key={option.value} className="chip" title={option.note}>
                   <input
                     type="radio"
-                    name="background"
-                    checked={
-                      background.r === option.value.r &&
-                      background.g === option.value.g &&
-                      background.b === option.value.b
-                    }
-                    onChange={() => setBackground(option.value)}
+                    name="format"
+                    checked={format === option.value}
+                    onChange={() => setFormat(option.value)}
                   />
                   <span>{option.label}</span>
                 </label>
               ))}
-              <label className="chip">
-                <input
-                  type="color"
-                  aria-label="Custom background colour"
-                  onChange={(event) => setBackground(hexToRgb(event.target.value))}
-                />
-                <span>Custom</span>
+            </div>
+            <p className="muted">
+              {FORMATS.find((f) => f.value === format)?.note}
+            </p>
+          </fieldset>
+
+          {format === "jpeg" && (
+            <div className="field">
+              <label className="field__label" htmlFor="quality">
+                Quality — {quality}
               </label>
+              <input
+                id="quality"
+                type="range"
+                min={1}
+                max={100}
+                value={quality}
+                onChange={(event) => setQuality(Number(event.target.value))}
+              />
+            </div>
+          )}
+
+          <fieldset className="field">
+            <legend className="field__label">Resize</legend>
+            <div className="chips">
+              {(
+                [
+                  ["none", "Keep original"],
+                  ["fit", "Fit within"],
+                  ["exact", "Exactly"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="chip">
+                  <input
+                    type="radio"
+                    name="resize"
+                    checked={resizeMode === value}
+                    onChange={() => setResizeMode(value)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+            {resizeMode !== "none" && (
+              <div className="field__row">
+                <label>
+                  <span className="muted">Width </span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={boxWidth}
+                    onChange={(event) =>
+                      setBoxWidth(Number(event.target.value))
+                    }
+                  />
+                </label>
+                <label>
+                  <span className="muted">Height </span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={boxHeight}
+                    onChange={(event) =>
+                      setBoxHeight(Number(event.target.value))
+                    }
+                  />
+                </label>
+                {resizeMode === "fit" && (
+                  <span className="muted">
+                    Aspect ratio kept; images are never enlarged.
+                  </span>
+                )}
+              </div>
+            )}
+          </fieldset>
+
+          {preflight?.backgroundRequired && (
+            <fieldset className="field">
+              <legend className="field__label">
+                Background for transparent areas
+              </legend>
+              <div className="chips">
+                {BACKGROUNDS.map((option) => (
+                  <label key={option.label} className="chip">
+                    <input
+                      type="radio"
+                      name="background"
+                      checked={
+                        background.r === option.value.r &&
+                        background.g === option.value.g &&
+                        background.b === option.value.b
+                      }
+                      onChange={() => setBackground(option.value)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+                <label className="chip">
+                  <input
+                    type="color"
+                    aria-label="Custom background colour"
+                    onChange={(event) =>
+                      setBackground(hexToRgb(event.target.value))
+                    }
+                  />
+                  <span>Custom</span>
+                </label>
+              </div>
+            </fieldset>
+          )}
+
+          <div className="field">
+            <span className="field__label">Save to</span>
+            <div className="field__row">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void chooseDestination()}
+              >
+                {destination ? "Change…" : "Choose folder…"}
+              </button>
+              <span className="muted">
+                {destination ? fileNameOf(destination) : "No folder chosen yet"}
+              </span>
+            </div>
+          </div>
+
+          <fieldset className="field">
+            <legend className="field__label">If a file already exists</legend>
+            <div className="chips">
+              {(
+                [
+                  ["rename", "Rename"],
+                  ["fail", "Stop"],
+                  ["skip", "Skip"],
+                  ["overwrite", "Replace"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="chip">
+                  <input
+                    type="radio"
+                    name="policy"
+                    checked={policy === value}
+                    onChange={() => setPolicy(value)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
             </div>
           </fieldset>
-        )}
-
-        <fieldset className="field">
-          <legend className="field__label">If a file already exists</legend>
-          <div className="chips">
-            {(
-              [
-                ["rename", "Rename"],
-                ["fail", "Stop"],
-                ["skip", "Skip"],
-                ["overwrite", "Replace"],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="chip">
-                <input
-                  type="radio"
-                  name="policy"
-                  checked={policy === value}
-                  onChange={() => setPolicy(value)}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      </section>
-
-      {preflight && preflight.warnings.length > 0 && (
-        <section className="card">
-          <h2>Before you convert</h2>
-          <ul className="notice notice--warn" aria-label="What this conversion will change">
-            {preflight.warnings.map((warning) => (
-              <li key={warning.messageKey}>{t(warning.messageKey)}</li>
-            ))}
-          </ul>
         </section>
-      )}
 
-      <div className="field__row">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={!canRun}
-          onClick={() => void run()}
-        >
-          Convert {convertible > 0 ? `${convertible} image${convertible === 1 ? "" : "s"}` : ""}
-        </button>
-        {paths.length === 0 && <span className="muted">Choose some images first.</span>}
-        {paths.length > 0 && !destination && (
-          <span className="muted">Choose a destination folder.</span>
+        {preflight && preflight.warnings.length > 0 && (
+          <div className="field">
+            <span className="field__label">Before you convert</span>
+            <ul
+              className="notice notice--warn"
+              aria-label="What this conversion will change"
+            >
+              {preflight.warnings.map((warning) => (
+                <li key={warning.messageKey}>{t(warning.messageKey)}</li>
+              ))}
+            </ul>
+          </div>
         )}
+
+        {error && (
+          <div className="notice notice--bad" role="alert">
+            <p>{t(error.messageKey)}</p>
+            <details>
+              <summary>Technical details</summary>
+              <pre>{`${error.code}: ${error.detail}`}</pre>
+            </details>
+          </div>
+        )}
+
+        {lastJob && <JobCard job={lastJob} />}
       </div>
 
-      {error && (
-        <div className="notice notice--bad" role="alert">
-          <p>{t(error.messageKey)}</p>
-          <details>
-            <summary>Technical details</summary>
-            <pre>{`${error.code}: ${error.detail}`}</pre>
-          </details>
+      <div className="actionbar">
+        <div className="actionbar__inner">
+          <p className="actionbar__summary">
+            {convertible > 0 ? (
+              <>
+                <strong>
+                  {convertible} image{convertible === 1 ? "" : "s"}
+                </strong>{" "}
+                → {FORMATS.find((f) => f.value === format)?.label}
+                {destination
+                  ? ` · saving to ${fileNameOf(destination)}`
+                  : " · choose a folder"}
+              </>
+            ) : (
+              "Drop images above, or click to browse."
+            )}
+          </p>
+          {paths.length > 0 && (
+            <button
+              type="button"
+              className="btn btn--quiet"
+              onClick={() => setPaths([])}
+            >
+              Clear
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={!canRun}
+            onClick={() => void run()}
+          >
+            Convert
+            {convertible > 0
+              ? ` ${convertible} file${convertible === 1 ? "" : "s"}`
+              : ""}
+          </button>
         </div>
-      )}
-
-      {lastJob && <JobCard job={lastJob} />}
+      </div>
     </div>
   );
 }

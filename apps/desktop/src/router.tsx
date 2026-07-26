@@ -40,14 +40,11 @@ function Shell() {
           <span className="brand__mark" aria-hidden="true">
             ⇄
           </span>
-          <div>
-            <h1>LocalConvert</h1>
-            <p>Your files never leave your computer.</p>
-          </div>
+          <h1>LocalConvert</h1>
         </div>
-        <nav aria-label="Main">
+        <nav className="nav" aria-label="Conversion tools">
           <Link to="/" className="navlink" activeProps={{ className: "navlink navlink--active" }}>
-            Convert
+            Images
           </Link>
           <Link
             to="/archives"
@@ -77,6 +74,11 @@ function Shell() {
           >
             Data
           </Link>
+        </nav>
+        <nav className="nav nav--system" aria-label="Application">
+          <span className="offline" title="No network access — this app has no HTTP client">
+            <span aria-hidden="true">●</span> Offline
+          </span>
           <Link
             to="/queue"
             className="navlink"

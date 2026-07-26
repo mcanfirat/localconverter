@@ -4,6 +4,8 @@
 
 **Your files never leave your computer.**
 
+![The LocalConvert conversion screen in dark mode: a drop zone on the left, format and resize options on the right, and an action bar along the bottom](docs/images/convert-dark.png)
+
 ---
 
 ## Install — one command
