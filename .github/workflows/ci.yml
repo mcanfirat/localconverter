@@ -6,6 +6,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# CI only ever reads the tree — it publishes nothing and needs no secrets.
+# Stated explicitly so that a change to the repository-wide default cannot
+# silently hand a build job a token that can write to the repo.
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true

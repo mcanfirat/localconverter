@@ -834,9 +834,26 @@ fn canonical(path: &str) -> Result<PathBuf> {
         .map_err(|err| ConversionError::from_io("canonicalize media path", &err))
 }
 
-/// A path as an argv string, re-checked for NUL bytes at the last moment.
+/// A path as an argv string, re-checked at the last moment for the two things
+/// that make a path unsafe to hand to a child process: a NUL byte, and a
+/// leading `-`.
+///
+/// FFmpeg parses any argv entry starting with `-` as an option, so a *relative*
+/// path like `-vn.wav` would silently become a flag rather than a filename —
+/// argument injection through nothing more than a filename. Both call sites
+/// already pass canonicalised (absolute) paths, so this cannot fire today; the
+/// check is here so that stays true. Absolute paths begin with `/` (or a drive
+/// letter), so requiring absoluteness rules the class out entirely rather than
+/// blocklisting the leading dash.
 fn path_arg(path: &Path) -> Result<String> {
     crate::paths::ensure_safe_component_bytes(path)?;
+    if !path.is_absolute() {
+        return Err(ConversionError::new(
+            ConversionErrorCode::InvalidInput,
+            "refusing to pass a relative path to the media engine",
+        )
+        .with_message_key("error.path.notAbsolute"));
+    }
     Ok(path.to_string_lossy().into_owned())
 }
 
@@ -969,6 +986,24 @@ mod tests {
 
     fn ffmpeg_present() -> bool {
         is_available()
+    }
+
+    /// A filename that begins with `-` is a valid filename and an FFmpeg
+    /// option at the same time. `path_arg` is the last gate before argv, so it
+    /// is the place that has to refuse anything not anchored to the root —
+    /// otherwise a file called `-vn.wav` would reach FFmpeg as the `-vn` flag.
+    #[test]
+    fn relative_and_dash_leading_paths_never_reach_argv() {
+        assert!(
+            path_arg(Path::new("-vn.wav")).is_err(),
+            "a dash-leading relative path must not become an argv entry"
+        );
+        assert!(path_arg(Path::new("./-vn.wav")).is_err());
+        assert!(path_arg(Path::new("clip.mp4")).is_err());
+
+        // Absolute paths — what both real call sites pass — still work.
+        let ok = path_arg(Path::new("/tmp/-vn.wav")).expect("absolute paths are accepted");
+        assert!(ok.starts_with('/'), "argv entry must be anchored: {ok}");
     }
 
     #[test]

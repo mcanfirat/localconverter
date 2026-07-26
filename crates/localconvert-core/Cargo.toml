@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-calamine = { version = "0.30", features = ["dates"] }
+calamine = { version = "0.36", features = ["dates"] }
 chrono.workspace = true
 csv = "1"
 encoding_rs = "0.8"
@@ -16,7 +16,7 @@ flate2 = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "bmp", "gif", "rayon"] }
 imagesize = "0.15"
 kamadak-exif = "0.6"
-lopdf = { version = "0.36", default-features = false, features = ["embed_image"] }
+lopdf = { version = "0.44", default-features = false, features = ["embed_image"] }
 rust_xlsxwriter = "0.92"
 serde.workspace = true
 serde_json.workspace = true

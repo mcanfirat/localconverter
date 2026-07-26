@@ -496,6 +496,9 @@ fn extract_zip(
     guard_total_size(declared_total)?;
 
     let mut outputs = Vec::new();
+    // The pre-check above is advisory — it only read what the central directory
+    // claims. This is the total that actually reaches the disk.
+    let mut written_total = 0u64;
     for i in 0..archive.len() {
         ctx.check_cancelled()?;
         let mut entry = archive.by_index(i).map_err(zip_error)?;
@@ -513,7 +516,12 @@ fn extract_zip(
         }
 
         let staged_path = safe_join(staging_root, &relative)?;
-        write_entry(&staged_path, &mut entry)?;
+        let written = write_entry(
+            &staged_path,
+            &mut entry,
+            MAX_TOTAL_BYTES.saturating_sub(written_total),
+        )?;
+        written_total = written_total.saturating_add(written);
         outputs.push(extracted_output(root_name, &relative, &staged_path)?);
 
         ctx.report(JobProgress::counted(
@@ -537,6 +545,7 @@ fn extract_tar<R: Read>(
     let mut archive = tar::Archive::new(reader);
     let mut outputs = Vec::new();
     let mut running_total = 0u64;
+    let mut written_total = 0u64;
     let mut count = 0u64;
 
     // A single gzipped file (`dump.sql.gz`) has no tar inside it. That is a
@@ -564,7 +573,12 @@ fn extract_tar<R: Read>(
             return Err(unsafe_entry(&path));
         }
 
-        let size = entry.header().size().unwrap_or(0);
+        // `entry.size()`, not `entry.header().size()`: a PAX extension record
+        // overrides the size the raw header advertises, and the tar crate
+        // applies that override to the entry without rewriting the header. So
+        // the header can honestly report 0 while the entry streams gigabytes.
+        // Only the entry knows the size the reader will actually honour.
+        let size = entry.size();
         running_total = running_total.saturating_add(size);
         guard_total_size(running_total)?;
 
@@ -574,7 +588,12 @@ fn extract_tar<R: Read>(
             .into_owned();
 
         let staged_path = safe_join(staging_root, &relative)?;
-        write_entry(&staged_path, &mut entry)?;
+        let written = write_entry(
+            &staged_path,
+            &mut entry,
+            MAX_TOTAL_BYTES.saturating_sub(written_total),
+        )?;
+        written_total = written_total.saturating_add(written);
         outputs.push(extracted_output(root_name, &relative, &staged_path)?);
 
         ctx.report(JobProgress::indeterminate(
@@ -597,16 +616,43 @@ fn safe_join(staging_root: &Path, relative: &Path) -> Result<PathBuf> {
     })
 }
 
-fn write_entry(staged_path: &Path, reader: &mut impl Read) -> Result<()> {
+/// Writes one entry, refusing to put more than `remaining` bytes on disk, and
+/// returns how many it actually wrote.
+///
+/// Every size an archive states about itself is attacker-controlled, and both
+/// formats give the liar a way through if you believe it:
+///
+/// * a tar PAX `size` record overrides the entry size the header advertises,
+///   so a header can claim 0 while the entry streams gigabytes;
+/// * a zip's `uncompressed_size` bounds nothing during inflation — the CRC that
+///   would catch the lie is only verified at EOF, which is to say *after* the
+///   bytes are already on the disk.
+///
+/// So the copy is bounded here instead. This is the only limit in the module
+/// that does not take the archive's word for anything: it counts bytes as they
+/// land. Reading one byte past the budget is what proves the declaration lied.
+fn write_entry(staged_path: &Path, reader: &mut impl Read, remaining: u64) -> Result<u64> {
     if let Some(parent) = staged_path.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|err| ConversionError::from_io("create extracted directory", &err))?;
     }
     let mut out = std::fs::File::create(staged_path)
         .map_err(|err| ConversionError::from_io("create extracted file", &err))?;
-    std::io::copy(reader, &mut out)
+
+    let mut limited = reader.take(remaining.saturating_add(1));
+    let written = std::io::copy(&mut limited, &mut out)
         .map_err(|err| ConversionError::from_io("write extracted file", &err))?;
-    Ok(())
+
+    if written > remaining {
+        // Drop the handle before the caller's workspace teardown removes it.
+        drop(out);
+        return Err(ConversionError::new(
+            ConversionErrorCode::ArchiveUnsafe,
+            "archive expands past the safety limit; its declared sizes were wrong",
+        )
+        .with_message_key("error.archive.tooLarge"));
+    }
+    Ok(written)
 }
 
 fn extracted_output(root_name: &str, relative: &Path, staged_path: &Path) -> Result<StagedOutput> {
@@ -890,8 +936,36 @@ mod tests {
         );
     }
 
+    /// The guard that does not trust the archive. Both formats let an entry lie
+    /// about its size — a tar PAX record overrides the header, and a zip's
+    /// declared `uncompressed_size` bounds nothing during inflation — so the
+    /// only honest limit is one that counts bytes as they hit the disk. If this
+    /// regresses, a small crafted archive can fill the user's disk.
+    #[test]
+    fn a_lying_entry_cannot_write_past_the_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("payload.bin");
+
+        // A reader with far more to give than the budget allows — exactly what
+        // an entry whose declared size was a lie looks like from here.
+        let mut endless = std::io::repeat(0u8).take(4096);
+        let err = write_entry(&path, &mut endless, 512).unwrap_err();
+        assert_eq!(err.code, ConversionErrorCode::ArchiveUnsafe);
+        assert_eq!(
+            err.message_key, "error.archive.tooLarge",
+            "a size lie must surface as the archive-safety error"
+        );
+
+        // Exactly at the budget is fine — the limit is a ceiling, not a trap.
+        let mut exact = std::io::repeat(0u8).take(512);
+        let written = write_entry(&path, &mut exact, 512).unwrap();
+        assert_eq!(written, 512);
+    }
+
+    /// A relative `etc/passwd` is legal inside an archive; the guarantee is that
+    /// it lands under the extraction folder and never at the filesystem root.
     #[tokio::test]
-    async fn a_tar_with_an_absolute_entry_is_refused() {
+    async fn a_tar_entry_named_like_a_system_path_stays_contained() {
         let h = Harness::new();
         let archive = h.src_dir.join("abs.tar");
         {

@@ -37,6 +37,7 @@ export const MESSAGES: Record<string, string> = {
   "error.path.nulByte": "That file name contains characters that are not safe.",
   "error.path.traversal": "That path tries to escape its folder.",
   "error.path.absolute": "A relative path was expected.",
+  "error.path.notAbsolute": "That file could not be located precisely enough to convert safely.",
 
   // --- destination ---------------------------------------------------------
   "error.destination.exists": "A file with that name already exists.",
