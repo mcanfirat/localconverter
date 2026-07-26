@@ -604,8 +604,37 @@ fn extract_tar<R: Read>(
     Ok(outputs)
 }
 
+/// Characters that have no business in a file name and every use in disguising
+/// one: the C0 controls and DEL, which let an entry rewrite a terminal line as
+/// it is printed, and the bidi overrides, which reorder how a name *renders*
+/// without changing what it *is*. The classic is `photo\u{202E}gpj.exe`, shown
+/// to the user as `photo` + `exe.jpg` — they approve a picture and get an
+/// executable.
+///
+/// Applied to archive entries only. These names are supplied by whoever built
+/// the archive; a file the user picked themselves is their own business, and
+/// refusing to convert it because of an odd character would be our bug.
+fn ensure_displayable_entry_name(relative: &Path) -> Result<()> {
+    let name = relative.to_string_lossy();
+    if let Some(bad) = name.chars().find(|c| {
+        c.is_control()
+            || matches!(*c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
+    }) {
+        return Err(ConversionError::new(
+            ConversionErrorCode::ArchiveUnsafe,
+            format!(
+                "archive entry name contains a disguising character (U+{:04X})",
+                bad as u32
+            ),
+        )
+        .with_message_key("error.archive.unsafe"));
+    }
+    Ok(())
+}
+
 /// Resolves an entry path inside the staging root, rejecting any escape.
 fn safe_join(staging_root: &Path, relative: &Path) -> Result<PathBuf> {
+    ensure_displayable_entry_name(relative)?;
     crate::paths::join_within(staging_root, relative).map_err(|err| {
         // Recast any traversal rejection as the archive-specific, actionable code.
         ConversionError::new(
@@ -934,6 +963,31 @@ mod tests {
             !h2.out_dir.parent().unwrap().join("escaped.txt").exists(),
             "traversal entry escaped the destination"
         );
+    }
+
+    /// A right-to-left override makes `photo<RLO>gpj.exe` render as
+    /// `photoexe.jpg`. The bytes on disk are an executable; the name the user
+    /// reads is a picture. Nothing downstream can undo that, so it is refused
+    /// at the point the name enters the system.
+    #[test]
+    fn entry_names_that_disguise_themselves_are_refused() {
+        for name in [
+            "photo\u{202E}gpj.exe", // right-to-left override
+            "safe\u{200F}.txt",     // RTL mark
+            "bell\u{0007}.txt",     // C0 control
+            "line\nbreak.txt",      // newline: rewrites a terminal line
+        ] {
+            let err = ensure_displayable_entry_name(Path::new(name))
+                .expect_err("a disguising name must be refused");
+            assert_eq!(err.code, ConversionErrorCode::ArchiveUnsafe);
+        }
+
+        // Ordinary names, including non-ASCII ones, stay allowed — the check
+        // targets disguise, not unfamiliarity.
+        for name in ["photo.jpg", "ünïcode tëst 🎉.txt", "写真.png", "a/b/c.txt"] {
+            ensure_displayable_entry_name(Path::new(name))
+                .unwrap_or_else(|e| panic!("{name} should be allowed: {e:?}"));
+        }
     }
 
     /// The guard that does not trust the archive. Both formats let an entry lie

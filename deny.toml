@@ -5,6 +5,43 @@
 [advisories]
 yanked = "deny"
 
+# Vulnerabilities are NOT listed here and never should be: cargo-deny denies
+# them unconditionally, which is what caught the lopdf and quick-xml advisories
+# that reached this app through every PDF and XLSX a user opens.
+#
+# What follows is the other kind — `unmaintained`. Each one is transitive
+# through Tauri, each reports "No safe upgrade is available", and none is an
+# exploitable defect; they are notices that an upstream crate has no active
+# maintainer. They are listed one by one, with the crate named, so that a *new*
+# unmaintained advisory still fails the build and forces this decision again
+# rather than disappearing into a blanket `unmaintained = "allow"`.
+ignore = [
+    # GTK3 bindings — Tauri's Linux windowing backend. Gone when Tauri moves to
+    # GTK4; nothing this project can do from here.
+    { id = "RUSTSEC-2024-0411", reason = "gdkwayland-sys, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0412", reason = "gdk, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0413", reason = "atk, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0414", reason = "gdkx11-sys, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0415", reason = "gtk, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0416", reason = "atk-sys, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0417", reason = "gdkx11, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0418", reason = "gdk-sys, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0419", reason = "gtk3-macros, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0420", reason = "gtk-sys, via tauri (GTK3)" },
+    { id = "RUSTSEC-2024-0429", reason = "glib unsoundness in VariantStrIter, via tauri (GTK3); not a type this project constructs" },
+
+    # Build-time proc macros. They run in the compiler, not in the product.
+    { id = "RUSTSEC-2024-0370", reason = "proc-macro-error, build-time only" },
+    { id = "RUSTSEC-2024-0436", reason = "paste, build-time only" },
+
+    # unic-* — Unicode tables reached through urlpattern -> tauri-utils.
+    { id = "RUSTSEC-2025-0075", reason = "unic-char-range, via tauri-utils" },
+    { id = "RUSTSEC-2025-0080", reason = "unic-common, via tauri-utils" },
+    { id = "RUSTSEC-2025-0081", reason = "unic-char-property, via tauri-utils" },
+    { id = "RUSTSEC-2025-0098", reason = "unic-ucd-version, via tauri-utils" },
+    { id = "RUSTSEC-2025-0100", reason = "unic-ucd-ident, via tauri-utils" },
+]
+
 [licenses]
 # Permissive licenses only. A copyleft dependency changes the obligations for
 # the whole distributed bundle, so it is a deliberate decision rather than a
@@ -23,6 +60,12 @@ allow = [
     "MPL-2.0",
     "BSL-1.0",
     "OpenSSL",
+    # libfuzzer-sys, which is an optional dependency cargo-deny sees when it
+    # resolves every feature of every crate. It is not in this project's
+    # dependency graph (`cargo tree -i libfuzzer-sys` finds nothing) and is
+    # never linked into the product. NCSA is permissive and OSI-approved
+    # regardless, so allowing it costs nothing if that ever changes.
+    "NCSA",
 ]
 confidence-threshold = 0.9
 

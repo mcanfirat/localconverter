@@ -9,7 +9,12 @@ repository.workspace = true
 
 [lib]
 name = "localconvert_desktop_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# `rlib` only. Tauri's template also lists `staticlib` and `cdylib`, but those
+# exist solely for the iOS/Android bindings — and on Windows they make the
+# integration-test binary link against the cdylib instead of the rlib, which
+# then dies at startup with STATUS_ENTRYPOINT_NOT_FOUND before a single test
+# runs. Desktop needs neither. Add them back with the mobile targets, if ever.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

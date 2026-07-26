@@ -14,7 +14,9 @@ license = "MIT"
 repository = "https://github.com/localconvert/localconvert"
 
 [workspace.dependencies]
-localconvert-core = { path = "crates/localconvert-core" }
+# The version is not needed to build — the path wins — but without it this
+# reads as a wildcard dependency, which `cargo deny check bans` rejects.
+localconvert-core = { path = "crates/localconvert-core", version = "0.1" }
 
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
