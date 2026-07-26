@@ -18,8 +18,10 @@
 //! `test` feature, so the missing export comes in with `MockRuntime` rather
 //! than with the app itself. Ruled out: the `cdylib`/`staticlib` crate types
 //! (removed, no change) and a misplaced `WebView2Loader.dll` (copied beside
-//! the binary, no change). A `dumpbin /DEPENDENTS` step in CI prints the
-//! import table so the next attempt starts from the actual name.
+//! the binary, no change). docs/TESTING.md has the `dumpbin /DEPENDENTS`
+//! recipe for reading the import table — it only tells you anything with the
+//! `cfg` below temporarily deleted, since excluding the target is precisely
+//! what removes the imports worth looking at.
 //!
 //! What this costs: on Windows the job layer — registry, scheduler, event
 //! emission — is covered only by the crate's unit tests. The engines

@@ -71,24 +71,6 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
-      # Names the DLL import that kills the Tauri integration-test binary on
-      # Windows (see apps/desktop/src-tauri/tests/pipeline.rs). Diagnostic
-      # only — it must never fail the build. Delete once the cause is fixed.
-      - name: Windows — dump test binary imports
-        if: runner.os == 'Windows'
-        shell: pwsh
-        continue-on-error: true
-        run: |
-          cargo build --workspace --tests 2>&1 | Select-Object -Last 2
-          $exe = Get-ChildItem target\debug\deps -Filter "pipeline-*.exe" |
-            Select-Object -First 1
-          if (-not $exe) { Write-Host "no pipeline test binary"; exit 0 }
-          Write-Host "=== $($exe.Name) ==="
-          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" `
-            -latest -products * -find "**\dumpbin.exe" 2>$null | Select-Object -First 1
-          if ($vs) { & $vs /DEPENDENTS $exe.FullName | Select-String -Pattern "\.dll" }
-          else { Write-Host "dumpbin not found" }
-
       - run: cargo test --workspace
 
       # `cargo test` regenerates the TypeScript contracts via ts-rs. A dirty tree

@@ -148,8 +148,21 @@ unit tests and the `main.rs` harness start normally on Windows, which points at
 something linked by `MockRuntime` rather than by the app. Two hypotheses have
 been tested and disproved: the `cdylib`/`staticlib` crate types (removed — the
 crash survived) and a misplaced `WebView2Loader.dll` (copied next to the binary
-— the crash survived). CI runs `dumpbin /DEPENDENTS` on the binary so the next
-attempt begins with the real import table instead of another guess.
+— the crash survived).
+
+To pick this up, the import table is the place to start, and it has to be read
+with the `cfg` temporarily removed — with the target excluded the binary links
+nothing unusual, which is exactly why a permanent CI diagnostic was dropped
+rather than left in place reporting an empty answer:
+
+```powershell
+# after deleting the #![cfg(not(windows))] line
+cargo build -p localconvert-desktop --tests
+dumpbin /DEPENDENTS target\debug\deps\pipeline-*.exe
+```
+
+The DLL named there, minus the ones the passing binaries in the same directory
+also import, is the one to chase.
 
 **What is still covered on Windows:** every `localconvert-core` test — all the
 engines, validation, path fencing and archive safety — plus the desktop crate's
