@@ -109,20 +109,20 @@ p {
   align-items: center;
   gap: 9px;
 }
+/* No tile behind it: the mark is the two sheets themselves, and `currentColor`
+   lets the accent follow the theme without a second asset. */
 .brand__mark {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-size: 0.85rem;
+  display: block;
+  flex: none;
+  color: var(--accent);
 }
 .brand h1 {
   font-size: 0.9rem;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+.brand__local {
+  color: var(--accent);
 }
 
 /* Two groups, because they are two kinds of thing: the five conversion tools

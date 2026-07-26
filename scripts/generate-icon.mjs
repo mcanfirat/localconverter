@@ -1,17 +1,26 @@
-// Generates the LocalConvert source icon: a rounded square with a
-// convert-arrow glyph, drawn straight into an RGBA buffer and zlib-deflated
-// into a PNG. Written here rather than committed as a binary blob so the icon
-// is reproducible from source.
-import { deflateSync } from "node:zlib";
+// Generates the LocalConvert source icon: two offset sheets, the back one
+// tinted, with a convert arrow knocked out of the front one. Drawn straight
+// into an RGBA buffer and zlib-deflated into a PNG, so the icon is
+// reproducible from source rather than committed as an opaque binary.
+//
+//   node scripts/generate-icon.mjs /tmp/icon-source.png
+//   cd apps/desktop && pnpm tauri icon /tmp/icon-source.png
+//
+// `tauri icon` derives every other size, the .icns and the .ico from it.
+import { deflateSync, crc32 } from "node:zlib";
 import { writeFileSync } from "node:fs";
-import { crc32 } from "node:zlib";
 
 const S = 1024;
 const px = Buffer.alloc(S * S * 4);
 
-const set = (x, y, r, g, b, a) => {
+// The app's own accent, so the icon and the window agree.
+const BG = [22, 21, 19]; // near-black; the sheets need something to sit on
+const SHEET = [139, 133, 245]; // --accent, dark-mode value
+const BACK_ALPHA = 0.42; // the sheet behind is tinted, not a second hue
+
+const set = (x, y, [r, g, b], a) => {
+  if (x < 0 || y < 0 || x >= S || y >= S || a <= 0) return;
   const i = (y * S + x) * 4;
-  // simple source-over
   const sa = a / 255;
   px[i] = Math.round(px[i] * (1 - sa) + r * sa);
   px[i + 1] = Math.round(px[i + 1] * (1 - sa) + g * sa);
@@ -19,58 +28,64 @@ const set = (x, y, r, g, b, a) => {
   px[i + 3] = Math.min(255, Math.round(px[i + 3] + a * (1 - px[i + 3] / 255)));
 };
 
-// Rounded-square background with a vertical gradient.
-const R = 200;
-const inset = 40;
-const cover = (x, y) => {
-  const lo = inset, hi = S - inset;
-  if (x < lo || x > hi || y < lo || y > hi) return 0;
-  const cx = Math.min(Math.max(x, lo + R), hi - R);
-  const cy = Math.min(Math.max(y, lo + R), hi - R);
+// Coverage of a rounded rectangle at a pixel centre, in [0,1]. The half-pixel
+// band is what keeps the corners from looking like stairs.
+const coverage = (x, y, rx, ry, w, h, r) => {
+  if (x < rx || y < ry || x > rx + w || y > ry + h) return 0;
+  const cx = Math.min(Math.max(x, rx + r), rx + w - r);
+  const cy = Math.min(Math.max(y, ry + r), ry + h - r);
   const d = Math.hypot(x - cx, y - cy);
-  return Math.max(0, Math.min(1, R - d + 0.5));
+  return Math.max(0, Math.min(1, r - d + 0.5));
 };
 
-for (let y = 0; y < S; y++) {
-  const t = y / S;
-  const r = Math.round(37 + t * 20);
-  const g = Math.round(99 + t * 40);
-  const b = Math.round(235 - t * 55);
-  for (let x = 0; x < S; x++) {
-    const a = cover(x, y);
-    if (a > 0) set(x, y, r, g, b, Math.round(a * 255));
-  }
-}
-
-// Two opposing arrows (convert), drawn as thick strokes + triangular heads.
-const white = (x, y, a = 255) => set(Math.round(x), Math.round(y), 255, 255, 255, a);
-const stroke = (x0, y0, x1, y1, w) => {
-  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) * 2);
-  for (let s = 0; s <= steps; s++) {
-    const x = x0 + ((x1 - x0) * s) / steps;
-    const y = y0 + ((y1 - y0) * s) / steps;
-    for (let dy = -w; dy <= w; dy++)
-      for (let dx = -w; dx <= w; dx++) {
-        const d = Math.hypot(dx, dy);
-        if (d <= w) white(x + dx, y + dy, d > w - 1.5 ? 140 : 255);
-      }
+const fill = (rx, ry, w, h, r, colour, alpha = 1) => {
+  for (let y = Math.floor(ry); y <= Math.ceil(ry + h); y++) {
+    for (let x = Math.floor(rx); x <= Math.ceil(rx + w); x++) {
+      const a = coverage(x, y, rx, ry, w, h, r);
+      if (a > 0) set(x, y, colour, Math.round(a * 255 * alpha));
+    }
   }
 };
-// Triangle that tapers to a point at `baseX + dir * size`.
-const head = (baseX, baseY, dir, size) => {
+
+// --- background tile -------------------------------------------------------
+fill(40, 40, S - 80, S - 80, 200, BG);
+
+// --- the two sheets --------------------------------------------------------
+// Geometry mirrors the 64-unit mark drawn in the window header, scaled by 16,
+// so the icon and the in-app logo are one drawing at two sizes.
+fill(160, 128, 544, 672, 96, SHEET, BACK_ALPHA);
+fill(336, 240, 544, 672, 96, SHEET);
+
+// --- arrow, knocked out of the front sheet ---------------------------------
+// Painted in the background colour rather than white: the arrow is a hole in
+// the sheet, which is what makes the mark read as one object rather than two.
+const knock = (x, y, a = 255) => set(Math.round(x), Math.round(y), BG, a);
+
+const bar = (x0, x1, y, w) => {
+  for (let x = x0; x <= x1; x++)
+    for (let dy = -w; dy <= w; dy++) {
+      knock(x, y + dy, Math.abs(dy) > w - 1.5 ? 150 : 255);
+    }
+};
+
+// Triangular head: a point at `tipX`, widening back towards the bar. `i`
+// counts backwards from the tip, so the half-span grows with it — the other
+// way round draws a wedge that is widest at the point.
+const head = (tipX, y, size) => {
   for (let i = 0; i <= size; i++) {
-    const halfSpan = Math.round((size - i) * 0.85);
-    for (let j = -halfSpan; j <= halfSpan; j++) white(baseX + dir * i, baseY + j);
+    const half = Math.round(i * 0.92);
+    for (let j = -half; j <= half; j++) knock(tipX - i, y + j);
   }
 };
 
-const w = 26;
-stroke(300, 400, 640, 400, w);
-head(640, 400, 1, 86);
-stroke(384, 624, 724, 624, w);
-head(384, 624, -1, 86);
+// The front sheet spans x 336..880, y 240..912, so its centre is (608, 576).
+// The arrow is laid out about that centre, and the bar runs a little past the
+// head's base so the two read as one shape rather than two touching ones.
+const MID = 576;
+bar(500, 652, MID, 21);
+head(716, MID, 68);
 
-// --- PNG encoding ---
+// --- PNG encoding ----------------------------------------------------------
 const raw = Buffer.alloc((S * 4 + 1) * S);
 for (let y = 0; y < S; y++) {
   raw[y * (S * 4 + 1)] = 0; // filter: none

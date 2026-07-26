@@ -19,6 +19,45 @@ import { HomeRoute } from "./routes/HomeRoute";
 import { QueueRoute } from "./routes/QueueRoute";
 import { activeJobs, useJobStore } from "./store";
 
+/**
+ * The same drawing as the app icon — two offset sheets with the convert arrow
+ * knocked out of the front one — at header size. Inline SVG rather than an
+ * `<img>` so it inherits `currentColor` and needs no extra request; the icon
+ * files are generated from `scripts/generate-icon.mjs`, which uses this
+ * geometry scaled by 16.
+ */
+function BrandMark() {
+  return (
+    <svg
+      className="brand__mark"
+      viewBox="0 0 64 64"
+      width="26"
+      height="26"
+      role="img"
+      aria-label="LocalConvert"
+    >
+      <rect
+        x="10"
+        y="8"
+        width="34"
+        height="42"
+        rx="6"
+        fill="currentColor"
+        opacity="0.42"
+      />
+      <rect x="21" y="15" width="34" height="42" rx="6" fill="currentColor" />
+      <path
+        d="M31 32h11m0 0l-5-5m5 5l-5 5"
+        fill="none"
+        stroke="var(--surface)"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function Shell() {
   const jobs = useJobStore((state) => state.jobs);
   const setJobs = useJobStore((state) => state.setJobs);
@@ -26,7 +65,9 @@ function Shell() {
   const running = activeJobs(jobs).length;
 
   useEffect(() => {
-    void listJobs().then(setJobs).catch(() => undefined);
+    void listJobs()
+      .then(setJobs)
+      .catch(() => undefined);
     const unlisten = onJobUpdated(upsertJob);
     return () => {
       void unlisten.then((stop) => stop()).catch(() => undefined);
@@ -37,13 +78,17 @@ function Shell() {
     <div className="app">
       <header className="app__header">
         <div className="brand">
-          <span className="brand__mark" aria-hidden="true">
-            ⇄
-          </span>
-          <h1>LocalConvert</h1>
+          <BrandMark />
+          <h1>
+            <span className="brand__local">Local</span>Convert
+          </h1>
         </div>
         <nav className="nav" aria-label="Conversion tools">
-          <Link to="/" className="navlink" activeProps={{ className: "navlink navlink--active" }}>
+          <Link
+            to="/"
+            className="navlink"
+            activeProps={{ className: "navlink navlink--active" }}
+          >
             Images
           </Link>
           <Link
@@ -76,7 +121,10 @@ function Shell() {
           </Link>
         </nav>
         <nav className="nav nav--system" aria-label="Application">
-          <span className="offline" title="No network access — this app has no HTTP client">
+          <span
+            className="offline"
+            title="No network access — this app has no HTTP client"
+          >
             <span aria-hidden="true">●</span> Offline
           </span>
           <Link
@@ -112,14 +160,46 @@ function Shell() {
 const rootRoute = createRootRoute({ component: Shell });
 
 const routeTree = rootRoute.addChildren([
-  createRoute({ getParentRoute: () => rootRoute, path: "/", component: ConvertRoute }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/archives", component: ArchiveRoute }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/data", component: DataRoute }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/pdf", component: PdfRoute }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/media", component: MediaRoute }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/queue", component: QueueRoute }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/diagnostics", component: HomeRoute }),
-  createRoute({ getParentRoute: () => rootRoute, path: "/about", component: AboutRoute }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: ConvertRoute,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/archives",
+    component: ArchiveRoute,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/data",
+    component: DataRoute,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/pdf",
+    component: PdfRoute,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/media",
+    component: MediaRoute,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/queue",
+    component: QueueRoute,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/diagnostics",
+    component: HomeRoute,
+  }),
+  createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/about",
+    component: AboutRoute,
+  }),
 ]);
 
 /**
