@@ -1001,9 +1001,21 @@ mod tests {
         assert!(path_arg(Path::new("./-vn.wav")).is_err());
         assert!(path_arg(Path::new("clip.mp4")).is_err());
 
-        // Absolute paths — what both real call sites pass — still work.
-        let ok = path_arg(Path::new("/tmp/-vn.wav")).expect("absolute paths are accepted");
-        assert!(ok.starts_with('/'), "argv entry must be anchored: {ok}");
+        // Absolute paths — what both real call sites pass — still work. What
+        // counts as absolute is platform-specific: Windows wants a drive
+        // letter, so `/tmp/x` is merely *rooted* there and is correctly
+        // refused. Real paths arrive from `canonicalize`, which yields
+        // `\\?\C:\…` on Windows and `/…` elsewhere.
+        let absolute = if cfg!(windows) {
+            r"C:\tmp\-vn.wav"
+        } else {
+            "/tmp/-vn.wav"
+        };
+        let ok = path_arg(Path::new(absolute)).expect("absolute paths are accepted");
+        assert!(
+            Path::new(&ok).is_absolute(),
+            "argv entry must be anchored: {ok}"
+        );
     }
 
     #[test]
