@@ -134,3 +134,25 @@ reads `lib.rs` and fails if a passthrough command is registered.
 | Network-isolation assertion | Phase 1 | Meaningful once an engine subprocess exists that *could* dial out. Today no HTTP client is in the dependency tree at all. |
 
 Large-fixture runs move to a nightly workflow once fixtures exist.
+
+## Known platform gap: the pipeline tests do not run on Windows
+
+`apps/desktop/src-tauri/tests/pipeline.rs` is `#![cfg(not(windows))]`. On
+Windows the test binary exits with `STATUS_ENTRYPOINT_NOT_FOUND` (0xc0000139)
+before `main` runs — a DLL it imports resolves, but one of the exports it needs
+is missing. Because the crash precedes `main`, `#[ignore]` cannot skip it; the
+target itself has to be excluded.
+
+It is the only target that enables Tauri's `test` feature, and both the crate's
+unit tests and the `main.rs` harness start normally on Windows, which points at
+something linked by `MockRuntime` rather than by the app. Two hypotheses have
+been tested and disproved: the `cdylib`/`staticlib` crate types (removed — the
+crash survived) and a misplaced `WebView2Loader.dll` (copied next to the binary
+— the crash survived). CI runs `dumpbin /DEPENDENTS` on the binary so the next
+attempt begins with the real import table instead of another guess.
+
+**What is still covered on Windows:** every `localconvert-core` test — all the
+engines, validation, path fencing and archive safety — plus the desktop crate's
+own unit tests over the registry and state machine. **What is not:** the job
+layer end-to-end through a real Tauri app handle. macOS and Linux run it on
+every push.

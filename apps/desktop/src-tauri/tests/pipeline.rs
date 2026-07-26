@@ -4,7 +4,31 @@
 //! scheduler, event emission and the state machine driven by the same code the
 //! window drives. Phase 0's acceptance criterion — "a job runs and reports
 //! progress" — is asserted here rather than claimed.
-
+//!
+//! # Not compiled on Windows
+//!
+//! This binary dies at startup there with `STATUS_ENTRYPOINT_NOT_FOUND`
+//! (0xc0000139): a DLL it imports resolves, but an export it needs is absent.
+//! The crash happens before `main`, so `#[ignore]` cannot skip past it — the
+//! whole target has to go, which is why this is `cfg` and not an attribute on
+//! each test.
+//!
+//! What is known: the crate's own unit tests and the `main.rs` harness both
+//! start fine on Windows, and this is the only target that turns on Tauri's
+//! `test` feature, so the missing export comes in with `MockRuntime` rather
+//! than with the app itself. Ruled out: the `cdylib`/`staticlib` crate types
+//! (removed, no change) and a misplaced `WebView2Loader.dll` (copied beside
+//! the binary, no change). A `dumpbin /DEPENDENTS` step in CI prints the
+//! import table so the next attempt starts from the actual name.
+//!
+//! What this costs: on Windows the job layer — registry, scheduler, event
+//! emission — is covered only by the crate's unit tests. The engines
+//! themselves are unaffected; all of `localconvert-core` runs there. Tracked
+//! in docs/TESTING.md.
+//!
+//! ponytail: excluded, not deleted. Drop the `cfg` the moment the import is
+//! identified — the coverage is worth more than the tidiness.
+#![cfg(not(windows))]
 #![allow(
     clippy::unwrap_used,
     clippy::expect_used,
