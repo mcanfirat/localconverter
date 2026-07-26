@@ -70,6 +70,26 @@ jobs:
 
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # The Tauri integration test binary dies at startup on Windows with
+      # STATUS_ENTRYPOINT_NOT_FOUND — a DLL resolved but missing an export it
+      # imports. The library's own tests and the main.rs harness both start
+      # fine, so it is specific to what tauri's `test` feature links. Print
+      # what is actually on disk so the cause is visible rather than guessed;
+      # this step never fails the build.
+      - name: Windows — locate WebView2 loader
+        if: runner.os == 'Windows'
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          cargo build --workspace --tests 2>&1 | Select-Object -Last 3
+          Get-ChildItem -Recurse -Filter "WebView2Loader.dll" target\debug |
+            Select-Object -First 10 FullName, Length
+          Write-Host "--- DLLs in target\debug (top level) ---"
+          Get-ChildItem -Filter *.dll target\debug | Select-Object Name, Length
+          Write-Host "--- DLLs beside the test binaries ---"
+          Get-ChildItem -Filter *.dll target\debug\deps | Select-Object Name, Length
+
       - run: cargo test --workspace
 
       # `cargo test` regenerates the TypeScript contracts via ts-rs. A dirty tree
