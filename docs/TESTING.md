@@ -135,6 +135,19 @@ reads `lib.rs` and fails if a passthrough command is registered.
 
 Large-fixture runs move to a nightly workflow once fixtures exist.
 
+## Known platform gap: nothing runs the suite on Intel macOS
+
+GitHub retired the `macos-13` runner image, and the matrix entry pinned to it
+simply stopped being scheduled — it queued for hours and blocked the packaging
+jobs that depend on the Rust job. It has been replaced by a cross-compile of
+the whole workspace for `x86_64-apple-darwin`, run under clippy on the ARM
+runner, plus a universal bundle that carries both architectures.
+
+So a compile break on Intel is still caught. A fault that only shows up when
+the code *executes* on x86_64 is not — that needs an Intel host, and there is
+no longer a free one. This is a real reduction in coverage and is recorded
+here rather than left to be inferred from a matrix that quietly lost a row.
+
 ## Known platform gap: the pipeline tests do not run on Windows
 
 `apps/desktop/src-tauri/tests/pipeline.rs` is `#![cfg(not(windows))]`. On

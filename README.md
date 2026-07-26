@@ -85,9 +85,9 @@ in [CLAUDE.md](CLAUDE.md).
 | | Status |
 |---|---|
 | macOS 13+ (Apple Silicon) | ✅ builds and runs, release bundle verified |
-| macOS 13+ (Intel) | ⏳ builds in CI, not yet run on hardware |
-| Windows 10/11 x64 | ⏳ builds in CI, not yet run on hardware |
-| Linux x64 (Ubuntu/Debian) | ⏳ builds in CI, not yet run on hardware |
+| macOS 13+ (Intel) | ⏳ cross-compiled and packaged in CI; **no test run on Intel** — GitHub retired its Intel runners, so nothing executes the suite on that architecture |
+| Windows 10/11 x64 | ⏳ tests pass in CI, not yet run on hardware |
+| Linux x64 (Ubuntu/Debian) | ⏳ tests pass in CI, not yet run on hardware |
 
 ## Supported conversions
 

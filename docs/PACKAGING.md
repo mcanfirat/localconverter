@@ -30,11 +30,31 @@ on Windows; `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-d
 | Platform | Bundles | Verified |
 |---|---|---|
 | macOS ARM (13+) | `.app`, `.dmg` | ✅ release bundle built |
-| macOS Intel | `.app`, `.dmg` | ⏳ CI only |
+| macOS Intel | `.app`, `.dmg` (universal) | ⏳ cross-compiled only — see below |
 | Windows x64 | `.msi`, NSIS `.exe` | ⏳ CI only |
 | Linux x64 | `.deb`, AppImage | ⏳ CI only |
 
 `.rpm` is not configured yet.
+
+### macOS is built universal, not once per architecture
+
+CI produces a single `universal-apple-darwin` bundle carrying both slices
+rather than one job per architecture. That is not only tidier: GitHub retired
+the `macos-13` Intel runner, and the job pinned to it stopped being scheduled
+at all — it sat queued indefinitely and, because packaging `needs: [rust]`,
+held every bundle behind it. A matrix entry that never runs is worse than no
+entry, because it looks like coverage.
+
+What that costs: the test suite no longer executes on Intel anywhere. CI
+cross-compiles the workspace for `x86_64-apple-darwin` under clippy, so a
+build break is still caught, but a fault that only appears when the code
+*runs* on Intel would not be. Building locally on an Intel Mac needs both
+targets:
+
+```bash
+rustup target add x86_64-apple-darwin aarch64-apple-darwin
+pnpm tauri build --target universal-apple-darwin
+```
 
 ## Icons
 

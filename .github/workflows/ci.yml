@@ -27,9 +27,9 @@ jobs:
     name: Frontend checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -48,10 +48,9 @@ jobs:
         include:
           - { name: "Linux x64", os: ubuntu-22.04 }
           - { name: "macOS ARM", os: macos-14 }
-          - { name: "macOS Intel", os: macos-13 }
           - { name: "Windows x64", os: windows-latest }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-22.04'
@@ -64,6 +63,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          targets: ${{ matrix.os == 'macos-14' && 'x86_64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
@@ -72,6 +72,19 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
 
       - run: cargo test --workspace
+
+      # Intel macOS used to be its own matrix entry on `macos-13`. GitHub
+      # retired that runner image, so the job never got picked up — it sat
+      # queued for hours and held the packaging jobs behind it, which is worse
+      # than having no Intel entry at all.
+      #
+      # Cross-compiling from the ARM runner keeps the part that actually caught
+      # things: that the workspace still builds for x86_64. It cannot run the
+      # tests on Intel — that needs an Intel host — so this is deliberately a
+      # compile check and is described as one in docs/TESTING.md.
+      - name: Intel macOS cross-compiles
+        if: matrix.os == 'macos-14'
+        run: cargo clippy --workspace --all-targets --target x86_64-apple-darwin -- -D warnings
 
       # `cargo test` regenerates the TypeScript contracts via ts-rs. A dirty tree
       # here means the committed bindings no longer match the Rust types.
@@ -91,12 +104,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: "Linux x64", os: ubuntu-22.04 }
-          - { name: "macOS ARM", os: macos-14 }
-          - { name: "macOS Intel", os: macos-13 }
-          - { name: "Windows x64", os: windows-latest }
+          - { name: "Linux x64", os: ubuntu-22.04, args: "" }
+          # One macOS entry, not two: a universal binary carries both
+          # architectures, so this replaces the ARM and the retired Intel job
+          # and produces the bundle an Intel user can actually run.
+          - { name: "macOS universal", os: macos-14, args: "--target universal-apple-darwin" }
+          - { name: "Windows x64", os: windows-latest, args: "" }
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-22.04'
@@ -106,24 +121,27 @@ jobs:
             libwebkit2gtk-4.1-dev libgtk-3-dev \
             libayatana-appindicator3-dev librsvg2-dev patchelf
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.os == 'macos-14' && 'x86_64-apple-darwin,aarch64-apple-darwin' || '' }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm tauri build --debug
+      - run: pnpm tauri build --debug ${{ matrix.args }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: localconvert-${{ matrix.os }}
+          name: localconvert-${{ matrix.name }}
           path: |
             target/debug/bundle/**/*
+            target/*/debug/bundle/**/*
           if-no-files-found: warn
           retention-days: 7
 
@@ -131,7 +149,7 @@ jobs:
     name: Licenses, advisories, SBOM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -141,15 +159,15 @@ jobs:
       - run: cargo deny check
       - run: cargo sbom > localconvert-sbom.spdx.json
 
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --audit-level=high
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: localconvert-sbom.spdx.json
