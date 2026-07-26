@@ -1,8 +1,14 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { ConversionError } from "../bindings/ConversionError";
 import type { OverwritePolicy } from "../bindings/OverwritePolicy";
+import {
+  ActionBar,
+  DropZone,
+  PickedFiles,
+  useFileDrop,
+} from "../components/FilePicker";
 import { JobCard } from "../components/JobCard";
 import { fileNameOf } from "../format";
 import { startJob, toConversionError } from "../ipc";
@@ -18,9 +24,19 @@ type PdfOp =
 
 const OPS: { value: PdfOp; label: string; multi: boolean; image: boolean }[] = [
   { value: "pdf.merge", label: "Merge", multi: true, image: false },
-  { value: "pdf.pages", label: "Extract / reorder / rotate", multi: false, image: false },
+  {
+    value: "pdf.pages",
+    label: "Extract / reorder / rotate",
+    multi: false,
+    image: false,
+  },
   { value: "pdf.split", label: "Split into pages", multi: false, image: false },
-  { value: "pdf.removeMetadata", label: "Remove metadata", multi: false, image: false },
+  {
+    value: "pdf.removeMetadata",
+    label: "Remove metadata",
+    multi: false,
+    image: false,
+  },
   { value: "pdf.fromImages", label: "Images → PDF", multi: true, image: true },
 ];
 
@@ -48,24 +64,34 @@ export function PdfRoute() {
   const lastJob = jobs.find((job) => job.id === lastJobId);
   const current = OPS.find((o) => o.value === op) ?? OPS[0]!;
 
-  async function chooseInputs() {
-    const extensions = current.image
-      ? ["jpg", "jpeg", "png", "webp", "tiff", "bmp", "gif"]
-      : ["pdf"];
-    const picked = await open({
-      multiple: current.multi,
-      filters: [{ name: current.image ? "Images" : "PDF", extensions }],
-    });
-    const list = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
-    setPaths(list);
-  }
+  // What counts as input depends on the operation: images→PDF takes pictures,
+  // everything else takes PDFs, and only merge and images→PDF take more than one.
+  const accepted = current.image
+    ? ["jpg", "jpeg", "png", "webp", "tiff", "bmp", "gif"]
+    : ["pdf"];
+
+  const addPaths = useCallback(
+    (incoming: string[]) => {
+      setPaths((cur) =>
+        current.multi
+          ? [...new Set([...cur, ...incoming])]
+          : incoming.slice(0, 1),
+      );
+    },
+    [current.multi],
+  );
+
+  const dragging = useFileDrop(accepted, addPaths);
 
   async function chooseDestination() {
     const picked = await open({ directory: true, multiple: false });
     if (typeof picked === "string") setDestination(picked);
   }
 
-  function optionsFor(): { pages: string | null; rotate: number | null } | null {
+  function optionsFor(): {
+    pages: string | null;
+    rotate: number | null;
+  } | null {
     switch (op) {
       case "pdf.pages":
         return {
@@ -100,139 +126,175 @@ export function PdfRoute() {
     !(current.multi && op === "pdf.merge" && paths.length < 2);
 
   return (
-    <div className="stack">
-      <section className="card">
-        <h2>PDF tools</h2>
-        <div className="chips">
-          {OPS.map((option) => (
-            <label key={option.value} className="chip">
-              <input
-                type="radio"
-                name="pdfop"
-                checked={op === option.value}
-                onChange={() => {
-                  setOp(option.value);
-                  setPaths([]);
-                }}
-              />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-        <p className="muted">{t(DESCRIPTION_KEY[op])}</p>
+    <div className="split">
+      <div className="stack">
+        <DropZone
+          title={
+            current.image
+              ? "Drop images here"
+              : current.multi
+                ? "Drop PDFs here"
+                : "Drop a PDF here"
+          }
+          hint={
+            current.image
+              ? "or click to browse — JPG, PNG, WebP, TIFF, BMP, GIF"
+              : "or click to browse — PDF"
+          }
+          filterName={current.image ? "Images" : "PDF"}
+          extensions={accepted}
+          multiple={current.multi}
+          empty={paths.length === 0}
+          dragging={dragging}
+          onAdd={addPaths}
+        />
 
-        <div className="field__row">
-          <button type="button" className="btn" onClick={() => void chooseInputs()}>
-            {current.image ? "Choose images…" : current.multi ? "Choose PDFs…" : "Choose a PDF…"}
-          </button>
-          <button type="button" className="btn" onClick={() => void chooseDestination()}>
-            Choose destination…
-          </button>
-          <span className="muted">
-            {destination ? `Saving to ${fileNameOf(destination)}` : "No destination chosen"}
-          </span>
-        </div>
-      </section>
+        <PickedFiles
+          rows={paths.map((path) => ({ name: fileNameOf(path) }))}
+          noun="file"
+          onRemove={(index) => setPaths(paths.filter((_, i) => i !== index))}
+        />
 
-      {paths.length > 0 && (
+        {op === "pdf.merge" && paths.length === 1 && (
+          <p className="notice notice--warn">
+            Merging needs at least two PDFs.
+          </p>
+        )}
+      </div>
+
+      <div className="stack">
         <section className="card">
-          <h2>
-            {paths.length} file{paths.length === 1 ? "" : "s"} selected
-          </h2>
-          <ul className="filelist">
-            {paths.map((path, index) => (
-              <li key={`${path}-${index}`} className="filelist__row">
-                <span className="filelist__name">{fileNameOf(path)}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {op === "pdf.pages" && (
-        <section className="card">
-          <div className="field">
-            <label className="field__label" htmlFor="range">
-              Pages to keep (blank = all)
-            </label>
-            <input
-              id="range"
-              type="text"
-              placeholder="e.g. 1-3,7,10-12"
-              value={pageRange}
-              onChange={(event) => setPageRange(event.target.value)}
-            />
-          </div>
           <fieldset className="field">
-            <legend className="field__label">Rotate</legend>
+            <legend className="field__label">What to do</legend>
             <div className="chips">
-              {ROTATIONS.map((deg) => (
-                <label key={deg} className="chip">
+              {OPS.map((option) => (
+                <label key={option.value} className="chip">
                   <input
                     type="radio"
-                    name="rotate"
-                    checked={rotate === deg}
-                    onChange={() => setRotate(deg)}
+                    name="pdfop"
+                    checked={op === option.value}
+                    onChange={() => {
+                      setOp(option.value);
+                      setPaths([]);
+                    }}
                   />
-                  <span>{deg}°</span>
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+            <p className="muted">{t(DESCRIPTION_KEY[op])}</p>
+          </fieldset>
+        </section>
+
+        {op === "pdf.pages" && (
+          <section className="card">
+            <div className="field">
+              <label className="field__label" htmlFor="range">
+                Pages to keep (blank = all)
+              </label>
+              <input
+                id="range"
+                type="text"
+                placeholder="e.g. 1-3,7,10-12"
+                value={pageRange}
+                onChange={(event) => setPageRange(event.target.value)}
+              />
+            </div>
+            <fieldset className="field">
+              <legend className="field__label">Rotate</legend>
+              <div className="chips">
+                {ROTATIONS.map((deg) => (
+                  <label key={deg} className="chip">
+                    <input
+                      type="radio"
+                      name="rotate"
+                      checked={rotate === deg}
+                      onChange={() => setRotate(deg)}
+                    />
+                    <span>{deg}°</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </section>
+        )}
+
+        <section className="card">
+          <fieldset className="field">
+            <legend className="field__label">If a file already exists</legend>
+            <div className="chips">
+              {(
+                [
+                  ["rename", "Rename"],
+                  ["fail", "Stop"],
+                  ["skip", "Skip"],
+                  ["overwrite", "Replace"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="chip">
+                  <input
+                    type="radio"
+                    name="policy"
+                    checked={policy === value}
+                    onChange={() => setPolicy(value)}
+                  />
+                  <span>{label}</span>
                 </label>
               ))}
             </div>
           </fieldset>
         </section>
-      )}
 
-      <section className="card">
-        <fieldset className="field">
-          <legend className="field__label">If a file already exists</legend>
-          <div className="chips">
-            {(
-              [
-                ["rename", "Rename"],
-                ["fail", "Stop"],
-                ["skip", "Skip"],
-                ["overwrite", "Replace"],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="chip">
-                <input
-                  type="radio"
-                  name="policy"
-                  checked={policy === value}
-                  onChange={() => setPolicy(value)}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
+        <div className="field">
+          <span className="field__label">Save to</span>
+          <div className="field__row">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void chooseDestination()}
+            >
+              {destination ? "Change…" : "Choose folder…"}
+            </button>
+            <span className="muted">
+              {destination ? fileNameOf(destination) : "No folder chosen yet"}
+            </span>
           </div>
-        </fieldset>
-      </section>
+        </div>
 
-      <div className="field__row">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={!canRun}
-          onClick={() => void run()}
-        >
-          Run
-        </button>
-        {op === "pdf.merge" && paths.length === 1 && (
-          <span className="muted">Merging needs at least two PDFs.</span>
+        {error && (
+          <div className="notice notice--bad" role="alert">
+            <p>{t(error.messageKey)}</p>
+            <details>
+              <summary>Technical details</summary>
+              <pre>{`${error.code}: ${error.detail}`}</pre>
+            </details>
+          </div>
         )}
+
+        {lastJob && <JobCard job={lastJob} />}
       </div>
 
-      {error && (
-        <div className="notice notice--bad" role="alert">
-          <p>{t(error.messageKey)}</p>
-          <details>
-            <summary>Technical details</summary>
-            <pre>{`${error.code}: ${error.detail}`}</pre>
-          </details>
-        </div>
-      )}
-
-      {lastJob && <JobCard job={lastJob} />}
+      <ActionBar
+        summary={
+          paths.length > 0 ? (
+            <>
+              <strong>
+                {paths.length} file{paths.length === 1 ? "" : "s"}
+              </strong>{" "}
+              → {current.label}
+              {destination
+                ? ` · saving to ${fileNameOf(destination)}`
+                : " · choose a folder"}
+            </>
+          ) : (
+            `Drop ${current.image ? "images" : current.multi ? "PDFs" : "a PDF"} above, or click to browse.`
+          )
+        }
+        {...(paths.length > 0 ? { onClear: () => setPaths([]) } : {})}
+        onRun={() => void run()}
+        runLabel="Run"
+        canRun={canRun}
+      />
     </div>
   );
 }

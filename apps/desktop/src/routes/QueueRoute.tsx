@@ -54,7 +54,11 @@ export function QueueRoute() {
       ) : (
         <div className="stack">
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} onCancel={(id) => void cancel(id)} />
+            <JobCard
+              key={job.id}
+              job={job}
+              onCancel={(id) => void cancel(id)}
+            />
           ))}
         </div>
       )}

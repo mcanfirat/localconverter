@@ -1,6 +1,11 @@
 import type { ConversionJob } from "../bindings/ConversionJob";
 import type { JobStatus } from "../bindings/JobStatus";
-import { fileNameOf, formatBytes, formatDuration, formatSizeChange } from "../format";
+import {
+  fileNameOf,
+  formatBytes,
+  formatDuration,
+  formatSizeChange,
+} from "../format";
 import { operationLabelKey, t, tOr } from "../messages";
 import { isTerminal } from "../store";
 
@@ -13,7 +18,10 @@ import { isTerminal } from "../store";
  * (quality was re-compressed, metadata was dropped), not problems. Painting it
  * amber with a "!" made a working conversion look like a failure.
  */
-const STATUS: Record<JobStatus, { label: string; symbol: string; tone: string }> = {
+const STATUS: Record<
+  JobStatus,
+  { label: string; symbol: string; tone: string }
+> = {
   queued: { label: "Queued", symbol: "•", tone: "idle" },
   preparing: { label: "Preparing", symbol: "•", tone: "busy" },
   running: { label: "Running", symbol: "•", tone: "busy" },
@@ -26,7 +34,10 @@ const STATUS: Record<JobStatus, { label: string; symbol: string; tone: string }>
 
 /** The folder part of a path, for telling the user where the result landed. */
 function folderOf(path: string): string {
-  const cut = path.lastIndexOf("/") === -1 ? path.lastIndexOf("\\") : path.lastIndexOf("/");
+  const cut =
+    path.lastIndexOf("/") === -1
+      ? path.lastIndexOf("\\")
+      : path.lastIndexOf("/");
   return cut > 0 ? path.slice(0, cut) : path;
 }
 
@@ -59,16 +70,24 @@ export function JobCard({ job, onCancel }: Props) {
             aria-label={t(job.progress.messageKey)}
             aria-valuemin={0}
             aria-valuemax={100}
-            {...(percent === null ? {} : { "aria-valuenow": Math.round(percent) })}
+            {...(percent === null
+              ? {}
+              : { "aria-valuenow": Math.round(percent) })}
           >
             <div
-              className={percent === null ? "meter__fill meter__fill--indeterminate" : "meter__fill"}
+              className={
+                percent === null
+                  ? "meter__fill meter__fill--indeterminate"
+                  : "meter__fill"
+              }
               style={percent === null ? undefined : { width: `${percent}%` }}
             />
           </div>
           <p className="job__stage">
             {t(job.progress.messageKey)}
-            {percent !== null && <span className="muted"> · {Math.round(percent)}%</span>}
+            {percent !== null && (
+              <span className="muted"> · {Math.round(percent)}%</span>
+            )}
           </p>
         </div>
       )}
@@ -77,7 +96,9 @@ export function JobCard({ job, onCancel }: Props) {
         <div className="saved">
           <p className="saved__line">
             <span aria-hidden="true">✓</span> Saved{" "}
-            <strong>{job.result.outputs.map((o) => fileNameOf(o.path)).join(", ")}</strong>
+            <strong>
+              {job.result.outputs.map((o) => fileNameOf(o.path)).join(", ")}
+            </strong>
           </p>
           <p className="saved__where">
             in <code>{folderOf(job.result.outputs[0]?.path ?? "")}</code>
@@ -114,7 +135,11 @@ export function JobCard({ job, onCancel }: Props) {
           <div>
             <dt>Checks</dt>
             <dd>
-              {job.result.validationReports.reduce((n, r) => n + r.checks.length, 0)} passed
+              {job.result.validationReports.reduce(
+                (n, r) => n + r.checks.length,
+                0,
+              )}{" "}
+              passed
             </dd>
           </div>
         </dl>
@@ -122,12 +147,12 @@ export function JobCard({ job, onCancel }: Props) {
 
       {job.result && job.result.warnings.length > 0 && (
         <details className="notes">
-          <summary>
-            What changed ({job.result.warnings.length})
-          </summary>
+          <summary>What changed ({job.result.warnings.length})</summary>
           <ul aria-label="Notes about this conversion">
             {job.result.warnings.map((warning, index) => (
-              <li key={`${warning.messageKey}-${index}`}>{t(warning.messageKey)}</li>
+              <li key={`${warning.messageKey}-${index}`}>
+                {t(warning.messageKey)}
+              </li>
             ))}
           </ul>
         </details>
@@ -136,7 +161,9 @@ export function JobCard({ job, onCancel }: Props) {
       {/* Cancelling is the user's own decision, not a fault — so it gets a quiet
           line, never a red alert with technical details to decode. */}
       {job.status === "cancelled" && (
-        <p className="muted">Cancelled — nothing was saved, and your files are untouched.</p>
+        <p className="muted">
+          Cancelled — nothing was saved, and your files are untouched.
+        </p>
       )}
 
       {job.status === "failed" && job.error && (
@@ -146,7 +173,8 @@ export function JobCard({ job, onCancel }: Props) {
             {job.error.sourceSafe
               ? "Your original files were not changed."
               : "Check your original files."}{" "}
-            {job.error.partialOutputRemoved && "The incomplete result was deleted."}
+            {job.error.partialOutputRemoved &&
+              "The incomplete result was deleted."}
           </p>
           <details>
             <summary>Technical details</summary>
@@ -157,7 +185,11 @@ export function JobCard({ job, onCancel }: Props) {
 
       {running && onCancel && (
         <div className="job__actions">
-          <button type="button" className="btn btn--quiet" onClick={() => onCancel(job.id)}>
+          <button
+            type="button"
+            className="btn btn--quiet"
+            onClick={() => onCancel(job.id)}
+          >
             Cancel
           </button>
         </div>

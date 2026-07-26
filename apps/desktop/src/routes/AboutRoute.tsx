@@ -55,16 +55,16 @@ export function AboutRoute() {
             {beta.length > 0 && (
               <p className="muted">
                 In beta:{" "}
-                {beta.map((op) => tOr(`${op.labelKey}`, op.id)).join(", ")} — these
-                work but have had less cross-platform testing.
+                {beta.map((op) => tOr(`${op.labelKey}`, op.id)).join(", ")} —
+                these work but have had less cross-platform testing.
               </p>
             )}
           </>
         )}
         <p className="muted">
-          Not included, because each needs a codec or renderer this build does not
-          bundle: HEIC, AVIF and lossy WebP; turning PDF pages into images. These
-          are declined by name rather than half-done. See{" "}
+          Not included, because each needs a codec or renderer this build does
+          not bundle: HEIC, AVIF and lossy WebP; turning PDF pages into images.
+          These are declined by name rather than half-done. See{" "}
           <code>docs/CONVERSION_MATRIX.md</code> for the tested status of every
           route.
         </p>

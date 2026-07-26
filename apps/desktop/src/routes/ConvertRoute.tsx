@@ -1,5 +1,4 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { Background } from "../bindings/Background";
@@ -8,6 +7,12 @@ import type { ImageBatchPreflight } from "../bindings/ImageBatchPreflight";
 import type { ImageOutputFormat } from "../bindings/ImageOutputFormat";
 import type { OverwritePolicy } from "../bindings/OverwritePolicy";
 import type { ResizeSpec } from "../bindings/ResizeSpec";
+import {
+  ActionBar,
+  DropZone,
+  PickedFiles,
+  useFileDrop,
+} from "../components/FilePicker";
 import { JobCard } from "../components/JobCard";
 import { fileNameOf, formatBytes } from "../format";
 import { preflightImages, startJob, toConversionError } from "../ipc";
@@ -60,7 +65,6 @@ export function ConvertRoute() {
     useState<ImageBatchPreflight | null>(null);
   const [error, setError] = useState<ConversionError | null>(null);
   const [lastJobId, setLastJobId] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
 
   const jobs = useJobStore((state) => state.jobs);
   const lastJob = jobs.find((job) => job.id === lastJobId);
@@ -106,57 +110,10 @@ export function ConvertRoute() {
   const preflight = paths.length === 0 ? null : lastPreflight;
 
   const addPaths = useCallback((incoming: string[]) => {
-    // Filter here rather than letting the backend decline them: dropping a
-    // folder or a stray .txt alongside photos is an accident, not a request.
-    const images = incoming.filter((path) =>
-      INPUT_EXTENSIONS.includes(path.split(".").pop()?.toLowerCase() ?? ""),
-    );
-    if (images.length === 0) return;
-    setPaths((current) => [...new Set([...current, ...images])]);
+    setPaths((current) => [...new Set([...current, ...incoming])]);
   }, []);
 
-  // Dragging files onto the window is the gesture people reach for first, and
-  // it arrives as a webview event rather than an HTML drop — the renderer
-  // never sees a real path, so the DOM drag events cannot be used here.
-  //
-  // Guarded because `getCurrentWebview` throws outright when the Tauri runtime
-  // is absent, as it is when the frontend is opened in an ordinary browser
-  // during development. Losing drag-and-drop there is a nuisance; taking the
-  // whole route down with it was a blank screen.
-  useEffect(() => {
-    let stop: (() => void) | undefined;
-    let cancelled = false;
-    try {
-      void getCurrentWebview()
-        .onDragDropEvent((event) => {
-          if (event.payload.type === "over") setDragging(true);
-          else if (event.payload.type === "drop") {
-            setDragging(false);
-            addPaths(event.payload.paths);
-          } else setDragging(false);
-        })
-        .then((unlisten) => {
-          if (cancelled) unlisten();
-          else stop = unlisten;
-        })
-        .catch(() => undefined);
-    } catch {
-      // No Tauri runtime — the browse button still works.
-    }
-    return () => {
-      cancelled = true;
-      stop?.();
-    };
-  }, [addPaths]);
-
-  async function chooseFiles() {
-    const picked = await open({
-      multiple: true,
-      filters: [{ name: "Images", extensions: INPUT_EXTENSIONS }],
-    });
-    if (Array.isArray(picked)) addPaths(picked);
-    else if (typeof picked === "string") addPaths([picked]);
-  }
+  const dragging = useFileDrop(INPUT_EXTENSIONS, addPaths);
 
   async function chooseDestination() {
     const picked = await open({ directory: true, multiple: false });
@@ -189,93 +146,45 @@ export function ConvertRoute() {
   return (
     <div className="split">
       <div className="stack">
-        <button
-          type="button"
-          className={[
-            "dropzone",
-            dragging ? "dropzone--hot" : "",
-            paths.length === 0 ? "dropzone--empty" : "",
-          ]
-            .filter(Boolean)
-            .join(" ")}
-          onClick={() => void chooseFiles()}
-        >
-          <span className="dropzone__icon" aria-hidden="true">
-            ⬒
-          </span>
-          <span className="dropzone__title">
-            {dragging ? "Release to add" : "Drop images here"}
-          </span>
-          <span className="dropzone__hint">
-            or click to browse — JPG, PNG, WebP, TIFF, BMP, GIF
-          </span>
-        </button>
+        <DropZone
+          title="Drop images here"
+          hint="or click to browse — JPG, PNG, WebP, TIFF, BMP, GIF"
+          filterName="Images"
+          extensions={INPUT_EXTENSIONS}
+          empty={paths.length === 0}
+          dragging={dragging}
+          onAdd={addPaths}
+        />
 
-        {preflight && preflight.files.length > 0 && (
-          <>
-            <div className="row row--between">
-              <strong>
-                {preflight.files.length} file
-                {preflight.files.length === 1 ? "" : "s"}
-              </strong>
-              <span className="muted">{formatBytes(totalBytes)} total</span>
-            </div>
-            <ul className="filelist">
-              {preflight.files.map((file, index) => (
-                <li
-                  key={`${file.displayName}-${index}`}
-                  className={
-                    file.errorMessageKey
-                      ? "filelist__row filelist__row--bad"
-                      : file.extensionMismatch
-                        ? "filelist__row filelist__row--warn"
-                        : "filelist__row"
-                  }
-                >
-                  <span className="filelist__thumb" aria-hidden="true">
-                    {file.errorMessageKey
-                      ? "✕"
-                      : file.extensionMismatch
-                        ? "⚠"
-                        : "▣"}
-                  </span>
-                  <span className="filelist__text">
-                    <span className="filelist__name">{file.displayName}</span>
-                    <span className="filelist__meta">
-                      {file.errorMessageKey ? (
-                        t(file.errorMessageKey)
-                      ) : file.extensionMismatch ? (
-                        <>
-                          Actually {file.detectedFormat.toUpperCase()} —
-                          converted as that
-                        </>
-                      ) : (
-                        <>
-                          {file.detectedFormat.toUpperCase()} · {file.width}×
-                          {file.height} · {formatBytes(file.sizeBytes)}
-                          {file.hasAlpha && " · transparent"}
-                          {file.isAnimated && " · animated"}
-                        </>
-                      )}
-                    </span>
-                  </span>
-                  <button
-                    type="button"
-                    className="filelist__drop"
-                    aria-label={`Remove ${file.displayName}`}
-                    onClick={() =>
-                      setPaths((current) =>
-                        current.filter((_, i) => i !== index),
-                      )
-                    }
-                  >
-                    ✕
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
+        <PickedFiles
+          rows={(preflight?.files ?? []).map((file) => ({
+            name: file.displayName,
+            tone: file.errorMessageKey
+              ? ("bad" as const)
+              : file.extensionMismatch
+                ? ("warn" as const)
+                : undefined,
+            meta: file.errorMessageKey ? (
+              t(file.errorMessageKey)
+            ) : file.extensionMismatch ? (
+              <>
+                Actually {file.detectedFormat.toUpperCase()} — converted as that
+              </>
+            ) : (
+              <>
+                {file.detectedFormat.toUpperCase()} · {file.width}×{file.height}{" "}
+                · {formatBytes(file.sizeBytes)}
+                {file.hasAlpha && " · transparent"}
+                {file.isAnimated && " · animated"}
+              </>
+            ),
+          }))}
+          noun="file"
+          total={preflight ? `${formatBytes(totalBytes)} total` : undefined}
+          onRemove={(index) =>
+            setPaths((current) => current.filter((_, i) => i !== index))
+          }
+        />
       </div>
 
       <div className="stack">
@@ -473,45 +382,27 @@ export function ConvertRoute() {
         {lastJob && <JobCard job={lastJob} />}
       </div>
 
-      <div className="actionbar">
-        <div className="actionbar__inner">
-          <p className="actionbar__summary">
-            {convertible > 0 ? (
-              <>
-                <strong>
-                  {convertible} image{convertible === 1 ? "" : "s"}
-                </strong>{" "}
-                → {FORMATS.find((f) => f.value === format)?.label}
-                {destination
-                  ? ` · saving to ${fileNameOf(destination)}`
-                  : " · choose a folder"}
-              </>
-            ) : (
-              "Drop images above, or click to browse."
-            )}
-          </p>
-          {paths.length > 0 && (
-            <button
-              type="button"
-              className="btn btn--quiet"
-              onClick={() => setPaths([])}
-            >
-              Clear
-            </button>
-          )}
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={!canRun}
-            onClick={() => void run()}
-          >
-            Convert
-            {convertible > 0
-              ? ` ${convertible} file${convertible === 1 ? "" : "s"}`
-              : ""}
-          </button>
-        </div>
-      </div>
+      <ActionBar
+        summary={
+          convertible > 0 ? (
+            <>
+              <strong>
+                {convertible} image{convertible === 1 ? "" : "s"}
+              </strong>{" "}
+              → {FORMATS.find((f) => f.value === format)?.label}
+              {destination
+                ? ` · saving to ${fileNameOf(destination)}`
+                : " · choose a folder"}
+            </>
+          ) : (
+            "Drop images above, or click to browse."
+          )
+        }
+        {...(paths.length > 0 ? { onClear: () => setPaths([]) } : {})}
+        onRun={() => void run()}
+        runLabel={`Convert${convertible > 0 ? ` ${convertible} file${convertible === 1 ? "" : "s"}` : ""}`}
+        canRun={canRun}
+      />
     </div>
   );
 }

@@ -1,9 +1,15 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { ArchiveFormat } from "../bindings/ArchiveFormat";
 import type { ConversionError } from "../bindings/ConversionError";
 import type { OverwritePolicy } from "../bindings/OverwritePolicy";
+import {
+  ActionBar,
+  DropZone,
+  PickedFiles,
+  useFileDrop,
+} from "../components/FilePicker";
 import { JobCard } from "../components/JobCard";
 import { fileNameOf } from "../format";
 import { startJob, toConversionError } from "../ipc";
@@ -34,19 +40,26 @@ export function ArchiveRoute() {
   const jobs = useJobStore((state) => state.jobs);
   const lastJob = jobs.find((job) => job.id === lastJobId);
 
-  async function chooseInputs() {
-    // exactOptionalPropertyTypes forbids passing `filters: undefined`, so the
-    // extract-only filter is spread in conditionally rather than set to undefined.
-    const picked = await open({
-      multiple: mode === "create",
-      ...(mode === "extract"
-        ? { filters: [{ name: "Archives", extensions: ARCHIVE_EXTENSIONS }] }
-        : {}),
-    });
-    const list = Array.isArray(picked) ? picked : typeof picked === "string" ? [picked] : [];
-    setPaths(list);
-    setNames(list.map(fileNameOf));
-  }
+  // Extracting reads exactly one archive; creating takes as many as you like.
+  const addPaths = useCallback(
+    (incoming: string[]) => {
+      setPaths((current) => {
+        const next =
+          mode === "extract"
+            ? incoming.slice(0, 1)
+            : [...new Set([...current, ...incoming])];
+        setNames(next.map(fileNameOf));
+        return next;
+      });
+    },
+    [mode],
+  );
+
+  // Creating an archive accepts anything, so there is nothing to filter on.
+  const dragging = useFileDrop(
+    mode === "extract" ? ARCHIVE_EXTENSIONS : [],
+    addPaths,
+  );
 
   async function chooseDestination() {
     const picked = await open({ directory: true, multiple: false });
@@ -83,163 +96,202 @@ export function ArchiveRoute() {
   const canRun = destination !== null && paths.length > 0;
 
   return (
-    <div className="stack">
-      <section className="card">
-        <h2>Archives</h2>
-        <div className="chips">
-          <label className="chip">
-            <input
-              type="radio"
-              name="mode"
-              checked={mode === "create"}
-              onChange={() => {
-                setMode("create");
-                setPaths([]);
-                setNames([]);
-              }}
-            />
-            <span>Create</span>
-          </label>
-          <label className="chip">
-            <input
-              type="radio"
-              name="mode"
-              checked={mode === "extract"}
-              onChange={() => {
-                setMode("extract");
-                setPaths([]);
-                setNames([]);
-              }}
-            />
-            <span>Extract</span>
-          </label>
-        </div>
-        <p className="muted">
-          {mode === "create"
-            ? t("operation.archiveCreate.description")
-            : t("operation.archiveExtract.description")}
-        </p>
+    <div className="split">
+      <div className="stack">
+        <DropZone
+          title={mode === "create" ? "Drop files here" : "Drop an archive here"}
+          hint={
+            mode === "create"
+              ? "or click to browse — any file, any number"
+              : "or click to browse — ZIP, TAR, TAR.GZ"
+          }
+          filterName="Archives"
+          extensions={mode === "extract" ? ARCHIVE_EXTENSIONS : []}
+          multiple={mode === "create"}
+          empty={paths.length === 0}
+          dragging={dragging}
+          onAdd={addPaths}
+        />
 
-        <div className="field__row">
-          <button type="button" className="btn" onClick={() => void chooseInputs()}>
-            {mode === "create" ? "Choose files…" : "Choose an archive…"}
-          </button>
-          <button type="button" className="btn" onClick={() => void chooseDestination()}>
-            Choose destination…
-          </button>
-          <span className="muted">
-            {destination ? `Saving to ${fileNameOf(destination)}` : "No destination chosen"}
-          </span>
-        </div>
-      </section>
+        <PickedFiles
+          rows={names.map((name) => ({ name }))}
+          noun={mode === "create" ? "file" : "archive"}
+          onRemove={(index) => {
+            const next = paths.filter((_, i) => i !== index);
+            setPaths(next);
+            setNames(next.map(fileNameOf));
+          }}
+        />
+      </div>
 
-      {names.length > 0 && (
-        <section className="card">
-          <h2>
-            {names.length} {mode === "create" ? "file" : "archive"}
-            {names.length === 1 ? "" : "s"} selected
-          </h2>
-          <ul className="filelist">
-            {names.map((name, index) => (
-              <li key={`${name}-${index}`} className="filelist__row">
-                <span className="filelist__name">{name}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {mode === "create" && (
+      <div className="stack">
         <section className="card">
           <fieldset className="field">
-            <legend className="field__label">Archive format</legend>
+            <legend className="field__label">What to do</legend>
             <div className="chips">
-              {FORMATS.map((option) => (
-                <label key={option.value} className="chip" title={option.note}>
+              {(
+                [
+                  ["create", "Create"],
+                  ["extract", "Extract"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="chip">
                   <input
                     type="radio"
-                    name="format"
-                    checked={format === option.value}
-                    onChange={() => setFormat(option.value)}
+                    name="mode"
+                    checked={mode === value}
+                    onChange={() => {
+                      setMode(value);
+                      setPaths([]);
+                      setNames([]);
+                    }}
                   />
-                  <span>{option.label}</span>
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+            <p className="muted">
+              {mode === "create"
+                ? t("operation.archiveCreate.description")
+                : t("operation.archiveExtract.description")}
+            </p>
+          </fieldset>
+        </section>
+
+        {mode === "create" && (
+          <section className="card">
+            <fieldset className="field">
+              <legend className="field__label">Archive format</legend>
+              <div className="chips">
+                {FORMATS.map((option) => (
+                  <label
+                    key={option.value}
+                    className="chip"
+                    title={option.note}
+                  >
+                    <input
+                      type="radio"
+                      name="format"
+                      checked={format === option.value}
+                      onChange={() => setFormat(option.value)}
+                    />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div className="field">
+              <label className="field__label" htmlFor="archive-name">
+                Archive name
+              </label>
+              <div className="field__row">
+                <input
+                  id="archive-name"
+                  type="text"
+                  value={archiveName}
+                  onChange={(event) => setArchiveName(event.target.value)}
+                />
+                <span className="muted">
+                  .
+                  {FORMATS.find((f) => f.value === format)?.value === "tarGz"
+                    ? "tar.gz"
+                    : format}
+                </span>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="card">
+          <fieldset className="field">
+            <legend className="field__label">If a file already exists</legend>
+            <div className="chips">
+              {(
+                [
+                  ["rename", "Rename"],
+                  ["fail", "Stop"],
+                  ["skip", "Skip"],
+                  ["overwrite", "Replace"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="chip">
+                  <input
+                    type="radio"
+                    name="policy"
+                    checked={policy === value}
+                    onChange={() => setPolicy(value)}
+                  />
+                  <span>{label}</span>
                 </label>
               ))}
             </div>
           </fieldset>
-
-          <div className="field">
-            <label className="field__label" htmlFor="archive-name">
-              Archive name
-            </label>
-            <div className="field__row">
-              <input
-                id="archive-name"
-                type="text"
-                value={archiveName}
-                onChange={(event) => setArchiveName(event.target.value)}
-              />
-              <span className="muted">
-                .{FORMATS.find((f) => f.value === format)?.value === "tarGz" ? "tar.gz" : format}
-              </span>
-            </div>
-          </div>
         </section>
-      )}
 
-      <section className="card">
-        <fieldset className="field">
-          <legend className="field__label">If a file already exists</legend>
-          <div className="chips">
-            {(
-              [
-                ["rename", "Rename"],
-                ["fail", "Stop"],
-                ["skip", "Skip"],
-                ["overwrite", "Replace"],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="chip">
-                <input
-                  type="radio"
-                  name="policy"
-                  checked={policy === value}
-                  onChange={() => setPolicy(value)}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
+        <div className="field">
+          <span className="field__label">Save to</span>
+          <div className="field__row">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void chooseDestination()}
+            >
+              {destination ? "Change…" : "Choose folder…"}
+            </button>
+            <span className="muted">
+              {destination ? fileNameOf(destination) : "No folder chosen yet"}
+            </span>
           </div>
-        </fieldset>
-      </section>
+        </div>
 
-      <div className="field__row">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={!canRun}
-          onClick={() => void run()}
-        >
-          {mode === "create" ? "Create archive" : "Extract"}
-        </button>
-        {paths.length === 0 && (
-          <span className="muted">
-            Choose {mode === "create" ? "some files" : "an archive"} first.
-          </span>
+        {error && (
+          <div className="notice notice--bad" role="alert">
+            <p>{t(error.messageKey)}</p>
+            <details>
+              <summary>Technical details</summary>
+              <pre>{`${error.code}: ${error.detail}`}</pre>
+            </details>
+          </div>
         )}
+
+        {lastJob && <JobCard job={lastJob} />}
       </div>
 
-      {error && (
-        <div className="notice notice--bad" role="alert">
-          <p>{t(error.messageKey)}</p>
-          <details>
-            <summary>Technical details</summary>
-            <pre>{`${error.code}: ${error.detail}`}</pre>
-          </details>
-        </div>
-      )}
-
-      {lastJob && <JobCard job={lastJob} />}
+      <ActionBar
+        summary={
+          paths.length > 0 ? (
+            <>
+              <strong>
+                {paths.length} {mode === "create" ? "file" : "archive"}
+                {paths.length === 1 ? "" : "s"}
+              </strong>{" "}
+              →{" "}
+              {mode === "create"
+                ? format === "tarGz"
+                  ? "TAR.GZ"
+                  : format.toUpperCase()
+                : "folder"}
+              {destination
+                ? ` · saving to ${fileNameOf(destination)}`
+                : " · choose a folder"}
+            </>
+          ) : (
+            `Drop ${mode === "create" ? "files" : "an archive"} above, or click to browse.`
+          )
+        }
+        {...(paths.length > 0
+          ? {
+              onClear: () => {
+                setPaths([]);
+                setNames([]);
+              },
+            }
+          : {})}
+        onRun={() => void run()}
+        runLabel={mode === "create" ? "Create archive" : "Extract"}
+        canRun={canRun}
+      />
     </div>
   );
 }

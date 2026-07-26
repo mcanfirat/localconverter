@@ -19,7 +19,11 @@ const SIZES = [
 const POLICIES: { value: OverwritePolicy; label: string; hint: string }[] = [
   { value: "fail", label: "Stop", hint: "Refuse to touch an existing file" },
   { value: "rename", label: "Rename", hint: "Write result (1).bin instead" },
-  { value: "skip", label: "Skip", hint: "Leave the existing file, write nothing" },
+  {
+    value: "skip",
+    label: "Skip",
+    hint: "Leave the existing file, write nothing",
+  },
   { value: "overwrite", label: "Replace", hint: "Overwrite the existing file" },
 ];
 
@@ -35,7 +39,9 @@ export function HomeRoute() {
   const lastJob = jobs.find((job) => job.id === lastJobId);
 
   useEffect(() => {
-    void listOperations().then(setOperations).catch(() => setOperations([]));
+    void listOperations()
+      .then(setOperations)
+      .catch(() => setOperations([]));
   }, []);
 
   const selftest = operations.find((op) => op.id === "diagnostics.selftest");
@@ -81,7 +87,11 @@ export function HomeRoute() {
             Destination folder
           </span>
           <div className="field__row">
-            <button type="button" className="btn" onClick={() => void chooseDestination()}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void chooseDestination()}
+            >
               Choose folder…
             </button>
             <output aria-labelledby="dest-label" className="field__value">

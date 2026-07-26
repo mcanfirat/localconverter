@@ -52,7 +52,9 @@ describe("JobCard", () => {
         })}
       />,
     );
-    expect(screen.getByRole("progressbar")).not.toHaveAttribute("aria-valuenow");
+    expect(screen.getByRole("progressbar")).not.toHaveAttribute(
+      "aria-valuenow",
+    );
   });
 
   it("states status in words, not colour alone", () => {
@@ -66,7 +68,9 @@ describe("JobCard", () => {
     // app was broken.
     render(<JobCard job={job({ status: "completedWithWarnings" })} />);
     expect(screen.getByText(/Done/)).toBeInTheDocument();
-    expect(screen.queryByText(/Completed with warnings/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Completed with warnings/),
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -90,8 +94,12 @@ describe("JobCard", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The result failed verification, so it was not kept.",
     );
-    expect(screen.getByText(/Your original files were not changed/)).toBeInTheDocument();
-    expect(screen.getByText(/The incomplete result was deleted/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your original files were not changed/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/The incomplete result was deleted/),
+    ).toBeInTheDocument();
   });
 
   it("renders warnings from a completed job", () => {
@@ -108,7 +116,9 @@ describe("JobCard", () => {
                 format: "bin",
               },
             ],
-            warnings: [{ messageKey: "warning.destination.overwritten", detail: null }],
+            warnings: [
+              { messageKey: "warning.destination.overwritten", detail: null },
+            ],
             validationReports: [],
             elapsedMs: 120,
             inputTotalBytes: 0,
@@ -120,7 +130,9 @@ describe("JobCard", () => {
     );
 
     // Notes live behind a "what changed" disclosure; they are still rendered.
-    expect(screen.getByText("An existing file was replaced.")).toBeInTheDocument();
+    expect(
+      screen.getByText("An existing file was replaced."),
+    ).toBeInTheDocument();
     expect(screen.getByText("1.00 KiB")).toBeInTheDocument();
     // The saved filename is shown prominently so the user can find the result.
     expect(screen.getByText("localconvert-selftest.bin")).toBeInTheDocument();
@@ -132,9 +144,15 @@ describe("JobCard", () => {
     const { rerender } = render(<JobCard job={job()} onCancel={onCancel} />);
 
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    expect(onCancel).toHaveBeenCalledWith("11111111-2222-3333-4444-555555555555");
+    expect(onCancel).toHaveBeenCalledWith(
+      "11111111-2222-3333-4444-555555555555",
+    );
 
-    rerender(<JobCard job={job({ status: "completed" })} onCancel={onCancel} />);
-    expect(screen.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
+    rerender(
+      <JobCard job={job({ status: "completed" })} onCancel={onCancel} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Cancel" }),
+    ).not.toBeInTheDocument();
   });
 });

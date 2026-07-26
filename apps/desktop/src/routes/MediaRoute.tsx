@@ -1,18 +1,35 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { ConversionError } from "../bindings/ConversionError";
 import type { MediaFormat } from "../bindings/MediaFormat";
 import type { MediaPreset } from "../bindings/MediaPreset";
 import type { OverwritePolicy } from "../bindings/OverwritePolicy";
+import {
+  ActionBar,
+  DropZone,
+  PickedFiles,
+  useFileDrop,
+} from "../components/FilePicker";
 import { JobCard } from "../components/JobCard";
 import { fileNameOf } from "../format";
 import { startJob, toConversionError } from "../ipc";
 import { t } from "../messages";
 import { useJobStore } from "../store";
 
-const INPUT_EXTENSIONS = ["mp4", "mov", "mkv", "webm", "gif", "mp3", "wav", "flac", "ogg", "m4a"];
+const INPUT_EXTENSIONS = [
+  "mp4",
+  "mov",
+  "mkv",
+  "webm",
+  "gif",
+  "mp3",
+  "wav",
+  "flac",
+  "ogg",
+  "m4a",
+];
 
 const VIDEO_FORMATS: { value: MediaFormat; label: string }[] = [
   { value: "mp4", label: "MP4" },
@@ -49,18 +66,20 @@ export function MediaRoute() {
   const lastJob = jobs.find((job) => job.id === lastJobId);
 
   useEffect(() => {
-    void invoke<boolean>("media_available").then(setAvailable).catch(() => setAvailable(false));
+    void invoke<boolean>("media_available")
+      .then(setAvailable)
+      .catch(() => setAvailable(false));
   }, []);
 
   const isVideoTarget = VIDEO_FORMATS.some((f) => f.value === format);
 
-  async function chooseFile() {
-    const picked = await open({
-      multiple: false,
-      filters: [{ name: "Audio & video", extensions: INPUT_EXTENSIONS }],
-    });
-    if (typeof picked === "string") setPath(picked);
-  }
+  // One file at a time: the options below (target format, preset, trim) are
+  // per-file decisions, and a batch would need them per row.
+  const addPaths = useCallback((incoming: string[]) => {
+    if (incoming[0]) setPath(incoming[0]);
+  }, []);
+
+  const dragging = useFileDrop(INPUT_EXTENSIONS, addPaths);
 
   async function chooseDestination() {
     const picked = await open({ directory: true, multiple: false });
@@ -97,8 +116,8 @@ export function MediaRoute() {
           <p>{t("error.media.ffmpegMissing")}</p>
           <p className="muted">
             Audio and video conversion use FFmpeg on your own machine — nothing
-            is uploaded. LocalConvert does not bundle it yet, so it uses the copy
-            you install.
+            is uploaded. LocalConvert does not bundle it yet, so it uses the
+            copy you install.
           </p>
         </section>
       </div>
@@ -108,137 +127,165 @@ export function MediaRoute() {
   const canRun = path !== null && destination !== null && available === true;
 
   return (
-    <div className="stack">
-      <section className="card">
-        <h2>{t("operation.media.label")}</h2>
-        <p className="muted">{t("operation.media.description")}</p>
+    <div className="split">
+      <div className="stack">
+        <DropZone
+          title="Drop a video or audio file here"
+          hint="or click to browse — MP4, MOV, MKV, WebM, MP3, WAV, FLAC, OGG, M4A"
+          filterName="Audio & video"
+          extensions={INPUT_EXTENSIONS}
+          multiple={false}
+          empty={path === null}
+          dragging={dragging}
+          onAdd={addPaths}
+        />
 
-        <div className="field__row">
-          <button type="button" className="btn" onClick={() => void chooseFile()}>
-            Choose a file…
-          </button>
-          <button type="button" className="btn" onClick={() => void chooseDestination()}>
-            Choose destination…
-          </button>
-          <span className="muted">
-            {path ? fileNameOf(path) : "No file chosen"}
-            {destination ? ` → ${fileNameOf(destination)}` : ""}
-          </span>
-        </div>
-      </section>
-
-      <section className="card">
-        <fieldset className="field">
-          <legend className="field__label">Convert to — video</legend>
-          <div className="chips">
-            {VIDEO_FORMATS.map((option) => (
-              <label key={option.value} className="chip">
-                <input
-                  type="radio"
-                  name="format"
-                  checked={format === option.value}
-                  onChange={() => setFormat(option.value)}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset className="field">
-          <legend className="field__label">Convert to — audio (extract)</legend>
-          <div className="chips">
-            {AUDIO_FORMATS.map((option) => (
-              <label key={option.value} className="chip">
-                <input
-                  type="radio"
-                  name="format"
-                  checked={format === option.value}
-                  onChange={() => setFormat(option.value)}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        <fieldset className="field">
-          <legend className="field__label">Quality</legend>
-          <div className="chips">
-            {PRESETS.map((option) => (
-              <label key={option.value} className="chip">
-                <input
-                  type="radio"
-                  name="preset"
-                  checked={preset === option.value}
-                  onChange={() => setPreset(option.value)}
-                />
-                <span>{option.label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        {isVideoTarget && format !== "gif" && (
-          <label className="field__row">
-            <input
-              type="checkbox"
-              checked={removeAudio}
-              onChange={(event) => setRemoveAudio(event.target.checked)}
-            />
-            <span>Remove audio track</span>
-          </label>
-        )}
-      </section>
-
-      <section className="card">
-        <fieldset className="field">
-          <legend className="field__label">If a file already exists</legend>
-          <div className="chips">
-            {(
-              [
-                ["rename", "Rename"],
-                ["fail", "Stop"],
-                ["skip", "Skip"],
-                ["overwrite", "Replace"],
-              ] as const
-            ).map(([value, label]) => (
-              <label key={value} className="chip">
-                <input
-                  type="radio"
-                  name="policy"
-                  checked={policy === value}
-                  onChange={() => setPolicy(value)}
-                />
-                <span>{label}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
-      </section>
-
-      <div className="field__row">
-        <button
-          type="button"
-          className="btn btn--primary"
-          disabled={!canRun}
-          onClick={() => void run()}
-        >
-          Convert
-        </button>
-        {available === null && <span className="muted">Checking for FFmpeg…</span>}
+        <PickedFiles
+          rows={path ? [{ name: fileNameOf(path) }] : []}
+          noun="file"
+          onRemove={() => setPath(null)}
+        />
       </div>
 
-      {error && (
-        <div className="notice notice--bad" role="alert">
-          <p>{t(error.messageKey)}</p>
-          <details>
-            <summary>Technical details</summary>
-            <pre>{`${error.code}: ${error.detail}`}</pre>
-          </details>
-        </div>
-      )}
+      <div className="stack">
+        <section className="card">
+          <fieldset className="field">
+            <legend className="field__label">Convert to — video</legend>
+            <div className="chips">
+              {VIDEO_FORMATS.map((option) => (
+                <label key={option.value} className="chip">
+                  <input
+                    type="radio"
+                    name="format"
+                    checked={format === option.value}
+                    onChange={() => setFormat(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="field">
+            <legend className="field__label">
+              Convert to — audio (extract)
+            </legend>
+            <div className="chips">
+              {AUDIO_FORMATS.map((option) => (
+                <label key={option.value} className="chip">
+                  <input
+                    type="radio"
+                    name="format"
+                    checked={format === option.value}
+                    onChange={() => setFormat(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
-      {lastJob && <JobCard job={lastJob} />}
+          <fieldset className="field">
+            <legend className="field__label">Quality</legend>
+            <div className="chips">
+              {PRESETS.map((option) => (
+                <label key={option.value} className="chip">
+                  <input
+                    type="radio"
+                    name="preset"
+                    checked={preset === option.value}
+                    onChange={() => setPreset(option.value)}
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+
+          {isVideoTarget && format !== "gif" && (
+            <label className="field__row">
+              <input
+                type="checkbox"
+                checked={removeAudio}
+                onChange={(event) => setRemoveAudio(event.target.checked)}
+              />
+              <span>Remove audio track</span>
+            </label>
+          )}
+        </section>
+
+        <section className="card">
+          <fieldset className="field">
+            <legend className="field__label">If a file already exists</legend>
+            <div className="chips">
+              {(
+                [
+                  ["rename", "Rename"],
+                  ["fail", "Stop"],
+                  ["skip", "Skip"],
+                  ["overwrite", "Replace"],
+                ] as const
+              ).map(([value, label]) => (
+                <label key={value} className="chip">
+                  <input
+                    type="radio"
+                    name="policy"
+                    checked={policy === value}
+                    onChange={() => setPolicy(value)}
+                  />
+                  <span>{label}</span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </section>
+
+        <div className="field">
+          <span className="field__label">Save to</span>
+          <div className="field__row">
+            <button
+              type="button"
+              className="btn"
+              onClick={() => void chooseDestination()}
+            >
+              {destination ? "Change…" : "Choose folder…"}
+            </button>
+            <span className="muted">
+              {destination ? fileNameOf(destination) : "No folder chosen yet"}
+            </span>
+          </div>
+        </div>
+
+        {error && (
+          <div className="notice notice--bad" role="alert">
+            <p>{t(error.messageKey)}</p>
+            <details>
+              <summary>Technical details</summary>
+              <pre>{`${error.code}: ${error.detail}`}</pre>
+            </details>
+          </div>
+        )}
+
+        {lastJob && <JobCard job={lastJob} />}
+      </div>
+
+      <ActionBar
+        summary={
+          path ? (
+            <>
+              <strong>{fileNameOf(path)}</strong> → {format.toUpperCase()}
+              {destination
+                ? ` · saving to ${fileNameOf(destination)}`
+                : " · choose a folder"}
+            </>
+          ) : (
+            "Drop a file above, or click to browse."
+          )
+        }
+        {...(path ? { onClear: () => setPath(null) } : {})}
+        onRun={() => void run()}
+        runLabel="Convert"
+        canRun={canRun}
+      />
     </div>
   );
 }
